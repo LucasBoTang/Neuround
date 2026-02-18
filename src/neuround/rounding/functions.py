@@ -28,10 +28,7 @@ class DiffBinarize(nn.Module):
     Differentiable binarize using straight-through estimator.
 
     Forward: 1 if x >= 0 else 0 (clamped to [-1, 1]).
-    Backward: gradient zeroed where |x| < 1.
-
-    Note: The gradient mask is intentionally kept from legacy code
-    for result reproduction.
+    Backward: identity (gradient passes through).
     """
     def __init__(self):
         super().__init__()
@@ -47,19 +44,13 @@ class _binarizeFuncSTE(Function):
     def forward(ctx, input):
         # Clamp to [-1, 1] then binarize at 0
         logit = torch.clamp(input, min=-1, max=1)
-        # Save for backward pass
-        ctx.save_for_backward(input)
         # Binarize to 0 or 1
         return (logit >= 0).float()
 
     @staticmethod
     def backward(ctx, grad_output):
-        input, = ctx.saved_tensors
-        # Copy upstream gradient
-        grad_input = grad_output.clone()
-        # NOTE: legacy gradient mask (inverted) kept for reproducibility
-        grad_input[torch.abs(input) < 1] = 0
-        return grad_input
+        # Identity STE: pass gradient through unchanged
+        return grad_output.clone()
 
 
 class DiffGumbelBinarize(nn.Module):
