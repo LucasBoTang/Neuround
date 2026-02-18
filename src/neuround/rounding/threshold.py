@@ -73,8 +73,8 @@ class DynamicThresholdRounding(RoundingNode):
             # Round integer variables: floor(x) + threshold_binarize(frac, thresh)
             if var.integer_indices:
                 x_floor = self.floor(x[:, var.integer_indices])
-                # NOTE: legacy bug — x_floor should be detached
-                x_frac = x[:, var.integer_indices] - x_floor
+                # Compute fractional part without gradient
+                x_frac = (x[:, var.integer_indices] - x_floor).detach()
                 thresh = thresh_var[:, var.integer_indices]
                 binary = self.threshold_binarize(x_frac, thresh)
                 x[:, var.integer_indices] = x_floor + binary
