@@ -45,12 +45,12 @@ class AdaptiveSelectionRounding(RoundingNode):
         self.binarize = DiffBinarize()
 
     def forward(self, data):
-        # Concatenate all problem parameters
-        params = torch.cat([data[k] for k in self.param_keys], dim=-1)
-        # Concatenate all relaxed variables
-        vars = torch.cat([data[v.relaxed.key] for v in self.vars], dim=-1)
         # Network input: [params, vars]
-        features = torch.cat([params, vars], dim=-1)
+        features = torch.cat(
+            [data[k] for k in self.param_keys]
+            + [data[v.relaxed.key] for v in self.vars],
+            dim=-1,
+        )
         hidden = self.net(features)
 
         # Round per variable using offset tracking

@@ -45,12 +45,12 @@ class DynamicThresholdRounding(RoundingNode):
         self.threshold_binarize = ThresholdBinarize(slope=slope)
 
     def forward(self, data):
-        # Concatenate all problem parameters
-        params = torch.cat([data[k] for k in self.param_keys], dim=-1)
-        # Concatenate all relaxed variables
-        vars = torch.cat([data[v.relaxed.key] for v in self.vars], dim=-1)
         # Network input: [params, vars]
-        features = torch.cat([params, vars], dim=-1)
+        features = torch.cat(
+            [data[k] for k in self.param_keys]
+            + [data[v.relaxed.key] for v in self.vars],
+            dim=-1,
+        )
 
         # Predict raw outputs and map to [0, 1] thresholds
         hidden = self.net(features)
