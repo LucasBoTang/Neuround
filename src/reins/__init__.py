@@ -12,7 +12,6 @@ from neuromancer.trainer import Trainer
 # ---- reins modules ----
 from reins.blocks import MLPBnDrop
 from reins.variable import VarType, variable
-from reins.projection import GradientProjection
 from reins.solver import LearnableSolver
 
 __all__ = [
@@ -22,6 +21,5 @@ __all__ = [
     # reins modules
     "MLPBnDrop",
     "VarType", "variable",
-    "GradientProjection",
     "LearnableSolver",
 ]

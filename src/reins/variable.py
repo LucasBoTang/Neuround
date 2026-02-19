@@ -1,5 +1,5 @@
 """
-Variable type management and unified variable creation for NeuroPMINLP.
+Variable type management and unified variable creation for REINS.
 """
 
 from enum import Enum

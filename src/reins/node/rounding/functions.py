@@ -4,7 +4,6 @@ Straight-through estimators for nondifferentiable operators.
 
 import torch
 from torch import nn
-from torch.autograd import Function
 
 
 class DiffFloor(nn.Module):
@@ -32,23 +31,10 @@ class DiffBinarize(nn.Module):
         super().__init__()
 
     def forward(self, x):
-        return _binarizeFuncSTE.apply(x)
-
-
-class _binarizeFuncSTE(Function):
-    """Custom autograd binarize function with STE."""
-
-    @staticmethod
-    def forward(ctx, input):
         # Clamp to [-1, 1] then binarize at 0
-        logit = torch.clamp(input, min=-1, max=1)
-        # Binarize to 0 or 1
-        return (logit >= 0).float()
-
-    @staticmethod
-    def backward(ctx, grad_output):
-        # Identity STE: pass gradient through unchanged
-        return grad_output.clone()
+        x = torch.clamp(x, min=-1, max=1)
+        # STE: Attach gradient from x
+        return x + ((x >= 0).float() - x).detach()
 
 
 class DiffGumbelBinarize(nn.Module):

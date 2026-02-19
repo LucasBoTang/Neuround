@@ -74,12 +74,11 @@ class DynamicThresholdRounding(RoundingNode):
 
             # Round integer variables: floor(x) + threshold_binarize(frac, thresh)
             if var.integer_indices:
-                # Slice network output for integer variables
                 x_int = x[:, var.integer_indices]
                 # Differentiable floor
-                x_floor = self.floor(x[:, var.integer_indices])
+                x_floor = self.floor(x_int)
                 # Compute fractional part without gradient
-                x_frac = (x[:, var.integer_indices] - x_floor).detach()
+                x_frac = (x_int - x_floor).detach()
                 # Network predicts threshold for rounding
                 thresh = thresh_var[:, var.integer_indices]
                 # Threshold decides whether to round up or down

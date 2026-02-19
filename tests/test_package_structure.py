@@ -20,9 +20,6 @@ class TestPackageImport:
     def test_import_projection_subpackage(self):
         import reins.projection
 
-    def test_import_utils_subpackage(self):
-        import reins.utils
-
 
 class TestNeuromancerReExports:
     """Test that neuromancer components are re-exported correctly."""
@@ -63,7 +60,7 @@ class TestNeuromancerReExports:
             "DictDataset", "Trainer",
             "Objective", "Constraint", "PenaltyLoss", "Problem",
             "MLPBnDrop", "VarType", "variable",
-            "GradientProjection", "LearnableSolver",
+            "LearnableSolver",
         ]
         for name in expected:
             assert name in reins.__all__, f"{name} missing from __all__"

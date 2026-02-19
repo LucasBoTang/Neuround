@@ -87,12 +87,13 @@ class TestDiffBinarize:
         assert torch.all((result == 0) | (result == 1))
 
     def test_gradient_passthrough(self):
-        """Identity STE: gradient should pass through unchanged."""
+        """STE: gradient passes through within [-1, 1], zero outside."""
         binarize = DiffBinarize()
         x = torch.tensor([-1.5, -0.5, 0.0, 0.5, 1.5], requires_grad=True)
         y = binarize(x)
         y.backward(torch.ones_like(y))
-        expected_grad = torch.ones(5)
+        # Clamp zeroes gradient outside [-1, 1]
+        expected_grad = torch.tensor([0.0, 1.0, 1.0, 1.0, 0.0])
         assert torch.allclose(x.grad, expected_grad)
 
     def test_clamping(self):
