@@ -89,22 +89,12 @@ from reins import MLP, MLPBnDrop, Node
 num_var = 5
 num_ineq = 5
 
-# Option A: Use MLP
-smap_net = MLP(
-    insize=num_ineq,         # input: problem parameters (b)
-    outsize=num_var,         # output: relaxed solution (x_rel)
-    bias=True,
-    nonlin=nn.ReLU,
-    hsizes=[64] * 4,         # 4 hidden layers of width 64
-)
-
-# Option B: Use MLPBnDrop (with BatchNorm + Dropout)
 smap_net = MLPBnDrop(
     insize=num_ineq,
     outsize=num_var,
     hsizes=[64] * 4,
-    dropout=0.2,
-    bnorm=True,
+    dropout=0.2,      # dropout rate
+    bnorm=True,       # batch norm
 )
 
 # Wrap as a Node: input key "b", output key must match x.relaxed.key
