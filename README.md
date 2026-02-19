@@ -83,7 +83,6 @@ x.relaxed.key         # "x_rel"
 The solution mapping network learns the mapping $b \mapsto x_{\text{rel}}$: it takes problem parameters as input and outputs a continuous relaxation of the solution. Wrap any PyTorch module in a `Node` to integrate it into the pipeline.
 
 ```python
-from torch import nn
 from reins import MLPBnDrop, Node
 
 num_var = 5
