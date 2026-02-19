@@ -51,24 +51,27 @@ The training pipeline:
 
 ### Step 1: Define Variables
 
-Use `variable()` to create decision variables with type metadata. This tells rounding layers which indices need integrality enforcement.
+Use `TypeVariable` for **decision variables** with type metadata (tells rounding layers which indices need integrality enforcement), and `Variable` for **parameters** (continuous inputs like constraint RHS).
 
 ```python
-from reins import variable, VarType
+from reins import TypeVariable, Variable, VarType
 
-# Pure integer variable
-x = variable("x", num_vars=5, var_types=VarType.INTEGER)
+# Pure integer decision variable
+x = TypeVariable("x", num_vars=5, var_types=VarType.INTEGER)
 
 # Equivalent using index-based specification
-x = variable("x", num_vars=5, integer_indices=[0, 1, 2, 3, 4])
+x = TypeVariable("x", num_vars=5, integer_indices=[0, 1, 2, 3, 4])
 
 # Mixed-integer: indices 0,1 are integer, index 2 is binary, rest continuous
-y = variable("y", num_vars=5, integer_indices=[0, 1], binary_indices=[2])
+y = TypeVariable("y", num_vars=5, integer_indices=[0, 1], binary_indices=[2])
 # Equivalent using explicit type list
-y = variable("y", var_types=[
+y = TypeVariable("y", var_types=[
     VarType.INTEGER, VarType.INTEGER, VarType.BINARY,
     VarType.CONTINUOUS, VarType.CONTINUOUS,
 ])
+
+# Parameter variable (continuous, no type metadata)
+b = Variable("b")
 ```
 
 
@@ -79,7 +82,7 @@ Define objectives and constraints symbolically via operator overloading, then co
 ```python
 import torch
 import numpy as np
-from reins import variable, PenaltyLoss
+from reins import Variable, PenaltyLoss
 
 # Fixed problem coefficients
 rng = np.random.RandomState(17)
@@ -87,16 +90,17 @@ Q = torch.from_numpy(0.01 * np.diag(rng.random(size=num_var))).float()
 p = torch.from_numpy(0.1 * rng.random(num_var)).float()
 A = torch.from_numpy(rng.normal(scale=0.1, size=(num_ineq, num_var))).float()
 
-# Use the same x from Step 1 (do NOT create a new variable("x"))
-b = variable("b")
+# Use x.variable from Step 1 for computation graph expressions
+b = Variable("b")
 
 # Objective: minimize (1/2) x^T Q x + p^T x
-f = 0.5 * torch.sum((x @ Q) * x, dim=1) + torch.sum(p * x, dim=1)
+x_expr = x.variable
+f = 0.5 * torch.sum((x_expr @ Q) * x_expr, dim=1) + torch.sum(p * x_expr, dim=1)
 obj = f.minimize(weight=1.0, name="obj")
 
 # Constraint: Ax <= b
 penalty_weight = 100
-con = penalty_weight * (x @ A.T <= b)
+con = penalty_weight * (x_expr @ A.T <= b)
 
 loss = PenaltyLoss(objectives=[obj], constraints=[con])
 ```
@@ -219,7 +223,7 @@ print(result["x_rel"])   # continuous relaxation
 ```
 src/reins/                    # Core package
 ├── __init__.py                  # Public API
-├── variable.py                  # VarType enum & variable() factory
+├── variable.py                  # VarType enum & TypeVariable class
 ├── blocks.py                    # MLPBnDrop (MLP with BatchNorm + Dropout)
 ├── solver.py                    # LearnableSolver wrapper
 ├── node/                        # Node components

@@ -25,7 +25,7 @@ from torch import nn
 from tqdm import tqdm
 
 from reins import (
-    variable, PenaltyLoss, MLPBnDrop,
+    Variable, TypeVariable, PenaltyLoss, MLPBnDrop,
     LearnableSolver,
 )
 from reins.variable import VarType
@@ -57,12 +57,12 @@ def build_loss(steepness, num_blocks, penalty_weight, device="cpu", relaxed=Fals
          b^T x <= 0                          (linear 1)
          q^T y <= 0                          (linear 2)
     """
-    x = variable("x", num_vars=num_blocks)
-    y = variable("y", num_vars=num_blocks, var_types=VarType.INTEGER)
-    a = variable("a")
-    p = variable("p")
-    x_expr = x.relaxed if relaxed else x
-    y_expr = y.relaxed if relaxed else y
+    x = TypeVariable("x", num_vars=num_blocks)
+    y = TypeVariable("y", num_vars=num_blocks, var_types=VarType.INTEGER)
+    a = Variable("a")
+    p = Variable("p")
+    x_expr = x.relaxed if relaxed else x.variable
+    y_expr = y.relaxed if relaxed else y.variable
     b_coef, q_coef = _coefficients(num_blocks)
     b_coef, q_coef = b_coef.to(device), q_coef.to(device)
     # objective
