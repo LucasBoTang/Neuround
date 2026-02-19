@@ -39,9 +39,9 @@ pip install -e .
 
 This tutorial walks through building a learnable solver for a parametric integer quadratic program:
 
-$$\min_{x} \quad \frac{1}{2} x^\top Q x + p^\top x \quad \text{s.t.} \quad Ax \leq b, \quad x \in \mathbb{Z}^n$$
+$$\min_{x} \quad \frac{1}{2} x^\top Q x + c^\top x \quad \text{s.t.} \quad Ax \leq b, \quad x \in \mathbb{Z}^n$$
 
-Here $Q$, $p$, $A$ are fixed problem coefficients, while $b$ is the **varying parameter**. Different values of $b$ define different problem instances. The goal of REINS is to learn a neural network mapping $b \mapsto x^*$ so that, given any new $b$, the network efficiently predicts a high-quality integer solution.
+Here $Q$, $c$, $A$ are fixed problem coefficients, while $b$ is the **varying parameter**. Different values of $b$ define different problem instances. The goal of REINS is to learn a neural network mapping $b \mapsto x^*$ so that, given any new $b$, the network efficiently predicts a high-quality integer solution.
 
 The training pipeline:
 1. **Sample** a dataset of parameter values $\{b^{(i)}\}$ (no optimal solutions needed)
@@ -51,27 +51,59 @@ The training pipeline:
 
 ### Step 1: Define Variables
 
-Use `variable()` to create decision variables with type metadata. This tells rounding layers which indices need integrality enforcement.
+Use `TypeVariable` for **decision variables** with type metadata (tells rounding layers which indices need integrality enforcement), and `Variable` for **parameters** (continuous inputs like constraint RHS).
 
 ```python
-from reins import variable, VarType
+from reins import TypeVariable, Variable, VarType
 
-# Pure integer variable
-x = variable("x", num_vars=5, var_types=VarType.INTEGER)
+# Pure integer decision variable
+x = TypeVariable("x", num_vars=5, var_types=VarType.INTEGER)
 
 # Equivalent using index-based specification
-x = variable("x", num_vars=5, integer_indices=[0, 1, 2, 3, 4])
+x = TypeVariable("x", num_vars=5, integer_indices=[0, 1, 2, 3, 4])
 
 # Mixed-integer: indices 0,1 are integer, index 2 is binary, rest continuous
-y = variable("y", num_vars=5, integer_indices=[0, 1], binary_indices=[2])
+y = TypeVariable("y", num_vars=5, integer_indices=[0, 1], binary_indices=[2])
 # Equivalent using explicit type list
-y = variable("y", var_types=[
+var_types=[
     VarType.INTEGER, VarType.INTEGER, VarType.BINARY,
     VarType.CONTINUOUS, VarType.CONTINUOUS,
-])
+]
+y = TypeVariable("y", var_types=var_types)
+
+# Parameter variable (continuous, no type metadata)
+b = Variable("b")
 ```
 
-### Step 2: Build Relaxation Network
+
+### Step 2: Define Loss (Objectives + Constraints)
+
+Define objectives and constraints symbolically via operator overloading, then combine into a `PenaltyLoss`. **Use the same `x` and `b` from Step 1** so that the loss and rounding layer share the same variable objects.
+
+```python
+import torch
+import numpy as np
+from reins import PenaltyLoss
+
+# Fixed problem coefficients
+rng = np.random.RandomState(17)
+Q = torch.from_numpy(0.01 * np.diag(rng.random(size=num_var))).float()
+c = torch.from_numpy(0.1 * rng.random(num_var)).float()
+A = torch.from_numpy(rng.normal(scale=0.1, size=(num_ineq, num_var))).float()
+
+# Objective: minimize (1/2) x^T Q x + c^T x
+f = 0.5 * torch.sum((x @ Q) * x, dim=1) + torch.sum(c * x, dim=1)
+obj = f.minimize(weight=1.0, name="obj")
+
+# Constraint: Ax <= b
+penalty_weight = 100
+con = penalty_weight * (x @ A.T <= b)
+
+loss = PenaltyLoss(objectives=[obj], constraints=[con])
+```
+
+
+### Step 3: Build Relaxation Network
 
 The relaxation network learns the mapping $b \mapsto x_{\text{rel}}$. Wrap any PyTorch module in a `RelaxationNode` to integrate it into the pipeline.
 
@@ -91,17 +123,17 @@ rel_net = MLPBnDrop(
 )
 
 # data["b"] -> rel_net -> data["x_rel"]
-rel = RelaxationNode(rel_net, ["b"], ["x"])
+rel = RelaxationNode(rel_net, [b], [x])
 ```
 
 
-### Step 3: Choose a Rounding Layer
+### Step 4: Choose a Rounding Layer
 
 Rounding layers convert continuous relaxations to integer solutions.
 
 ```python
 from reins.node.rounding import (
-    StochasticAdaptiveSelectionRounding,
+    StochasticAdaptiveSelectionRounding, # stochastic version with Gumbel noise
     DynamicThresholdRounding,
 )
 
@@ -112,44 +144,10 @@ rnd_net = MLPBnDrop(
 )
 
 # Adaptive Selection (AS)
-rounding = StochasticAdaptiveSelectionRounding(
-    vars=x, param_keys=["b"], net=rnd_net, continuous_update=True,
-)
+rounding = StochasticAdaptiveSelectionRounding(rnd_net, [b], [x], continuous_update=True)
 
 # Dynamic Thresholding (DT)
-rounding = DynamicThresholdRounding(
-    vars=x, param_keys=["b"], net=rnd_net,
-)
-```
-
-
-### Step 4: Define Loss (Objectives + Constraints)
-
-Define objectives and constraints symbolically via operator overloading, then combine into a `PenaltyLoss`. **Use the same `x` from Step 1** so that the loss and rounding layer share the same variable object.
-
-```python
-import torch
-import numpy as np
-from reins import variable, PenaltyLoss
-
-# Fixed problem coefficients
-rng = np.random.RandomState(17)
-Q = torch.from_numpy(0.01 * np.diag(rng.random(size=num_var))).float()
-p = torch.from_numpy(0.1 * rng.random(num_var)).float()
-A = torch.from_numpy(rng.normal(scale=0.1, size=(num_ineq, num_var))).float()
-
-# Use the same x from Step 1 (do NOT create a new variable("x"))
-b = variable("b")
-
-# Objective: minimize (1/2) x^T Q x + p^T x
-f = 0.5 * torch.sum((x @ Q) * x, dim=1) + torch.sum(p * x, dim=1)
-obj = f.minimize(weight=1.0, name="obj")
-
-# Constraint: Ax <= b
-penalty_weight = 100
-con = penalty_weight * (x @ A.T <= b)
-
-loss = PenaltyLoss(objectives=[obj], constraints=[con])
+rounding = DynamicThresholdRounding(rnd_net, [b], [x])
 ```
 
 
@@ -192,7 +190,9 @@ loader_val   = DataLoader(data_val, batch_size=64, shuffle=False,
 
 optimizer = torch.optim.AdamW(solver.problem.parameters(), lr=1e-3)
 solver.train(
-    loader_train, loader_val, optimizer,
+    loader_train,
+    loader_val,
+    optimizer,
     epochs=200,      # max epochs
     patience=20,     # early stopping patience
     warmup=20,       # warmup epochs before early stopping kicks in
@@ -216,11 +216,11 @@ print(result["x_rel"])   # continuous relaxation
 ```
 src/reins/                    # Core package
 ├── __init__.py                  # Public API
-├── variable.py                  # VarType enum & variable() factory
+├── variable.py                  # VarType enum & TypeVariable class
 ├── blocks.py                    # MLPBnDrop (MLP with BatchNorm + Dropout)
 ├── solver.py                    # LearnableSolver wrapper
 ├── node/                        # Node components
-│   ├── relaxation.py             # RelaxationNode (relaxation solution)
+│   ├── relaxation.py            # RelaxationNode (relaxation solution)
 │   └── rounding/                # Integer rounding layers
 │       ├── functions.py         # Differentiable STE primitives
 │       ├── base.py              # RoundingNode abstract base class
@@ -275,7 +275,7 @@ Our learning-based methods (AS & DT) achieve comparable or superior performance 
     <img src="img/rb_s100_penalty.png" alt="Penalty Effect on MIRB" width="40%"/>
 </div>
 
-With properly tuned penalty weights, the approach attains comparable or better objective values within subsecond, while exact solvers require up to 1000 seconds.
+With properly tuned penalty weights, the approach attains comparable or better objective values within sub-seconds, while exact solvers require up to 1000 seconds.
 
 
 ## Reproducibility

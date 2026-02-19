@@ -6,14 +6,13 @@ import pytest
 import torch
 from torch import nn
 from torch.utils.data import DataLoader
-from types import SimpleNamespace
-
 import neuromancer as nm
 from neuromancer.system import Node
 from neuromancer.dataset import DictDataset
 from neuromancer.loss import PenaltyLoss
 
 from reins.solver import LearnableSolver
+from reins.variable import TypeVariable
 from reins.projection.gradient import GradientProjection
 from reins.node.rounding.ste import STERounding
 
@@ -27,21 +26,11 @@ def seed():
 # ---- Helpers ----
 
 def _make_var(key, num_vars, integer_indices=None, binary_indices=None):
-    """Create a mock variable with type metadata for testing."""
-    integer_indices = integer_indices or []
-    binary_indices = binary_indices or []
-    continuous_indices = [
-        i for i in range(num_vars)
-        if i not in integer_indices and i not in binary_indices
-    ]
-    relaxed = SimpleNamespace(key=key + "_rel")
-    return SimpleNamespace(
-        key=key,
-        relaxed=relaxed,
-        num_vars=num_vars,
+    """Create a TypeVariable for testing."""
+    return TypeVariable(
+        key, num_vars=num_vars,
         integer_indices=integer_indices,
         binary_indices=binary_indices,
-        continuous_indices=continuous_indices,
     )
 
 
@@ -122,11 +111,11 @@ class TestLearnableSolverConstruction:
             LearnableSolver(bad_rel, rounding, loss)
 
     def test_dimension_mismatch_raises(self, loss):
-        """Should raise ValueError when rounding indices exceed relaxation output dim."""
+        """Should raise ValueError when relaxation output dim != total rounding variable dim."""
         var = _make_var("x", 3, integer_indices=[0, 1, 2])
         rel = _make_relaxation("b", "x_rel", insize=4, outsize=2)
         rnd = STERounding(var)
-        with pytest.raises(ValueError, match="rounding index"):
+        with pytest.raises(ValueError, match="Relaxation output dim"):
             LearnableSolver(rel, rnd, loss)
 
     def test_dimension_check_skipped_without_attribute(self, loss):

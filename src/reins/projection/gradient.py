@@ -48,7 +48,6 @@ class GradientProjection:
         # Clone and enable grad for all target variables
         xs = {k: data[k].clone().requires_grad_(True) for k in self.target_keys}
         batch_size = next(iter(xs.values())).shape[0]
-        device = next(iter(xs.values())).device
         d = 1.0
 
         # Build temp data once, update in-place each iteration
@@ -75,9 +74,13 @@ class GradientProjection:
                 break
 
             # Gradient step on all target variables
-            grads = torch.autograd.grad(total_viol.sum(), list(xs.values()))
+            grads = torch.autograd.grad(
+                total_viol.sum(), list(xs.values()),
+                allow_unused=True,
+            )
             xs = {
                 k: (xs[k] - d * self.step_size * g).detach().requires_grad_(True)
+                if g is not None else xs[k]
                 for k, g in zip(self.target_keys, grads)
             }
             d = self.decay * d

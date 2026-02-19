@@ -25,7 +25,7 @@ from torch import nn
 from tqdm import tqdm
 
 from reins import (
-    variable, PenaltyLoss, Node, MLPBnDrop, GradientProjection,
+    Variable, TypeVariable, PenaltyLoss, MLPBnDrop,
     LearnableSolver,
 )
 from reins.variable import VarType
@@ -47,20 +47,22 @@ def _coefficients(num_blocks):
     return b, q
 
 
-def build_loss(steepness, num_blocks, penalty_weight, device="cpu", relaxed=False):
+def build_loss(x, y, p, a, steepness, num_blocks, penalty_weight, device="cpu", relaxed=False):
     """
     Build PenaltyLoss for the Rosenbrock problem.
 
     min  sum_i (a_i - x_i)^2 + steepness * (y_i - x_i^2)^2
-    s.t. sum(y) >= num_blocks * p / 2       (inner)
-         sum(x^2) <= num_blocks * p          (outer)
-         b^T x <= 0                          (linear 1)
-         q^T y <= 0                          (linear 2)
+    s.t. sum(y) >= num_blocks * p / 2      (inner)
+         sum(x^2) <= num_blocks * p        (outer)
+         b^T x <= 0                        (linear 1)
+         q^T y <= 0                        (linear 2)
+
+    Args:
+        x: TypeVariable for continuous decision variable.
+        y: TypeVariable for integer decision variable.
+        p: Variable for the scaling parameter.
+        a: Variable for the target parameter.
     """
-    x = variable("x", num_vars=num_blocks)
-    y = variable("y", num_vars=num_blocks, var_types=VarType.INTEGER)
-    a = variable("a")
-    p = variable("p")
     x_expr = x.relaxed if relaxed else x
     y_expr = y.relaxed if relaxed else y
     b_coef, q_coef = _coefficients(num_blocks)
@@ -77,7 +79,7 @@ def build_loss(steepness, num_blocks, penalty_weight, device="cpu", relaxed=Fals
     linear1.name = "linear1"
     linear2 = penalty_weight * ((y_expr @ q_coef) <= 0)
     linear2.name = "linear2"
-    return PenaltyLoss(objectives=[obj], constraints=[inner, outer, linear1, linear2]), x, y
+    return PenaltyLoss(objectives=[obj], constraints=[inner, outer, linear1, linear2])
 
 def run_EX(loader_test, config):
     # Set random seeds
@@ -266,17 +268,20 @@ def run_AS(loader_train, loader_test, loader_val, config):
     lr = config.lr
     penalty_weight = config.penalty
     # Build loss and get typed variables
-    loss, x, y = build_loss(steepness, num_blocks, penalty_weight, device="cuda")
+    x = TypeVariable("x", num_vars=num_blocks)
+    y = TypeVariable("y", num_vars=num_blocks, var_types=VarType.INTEGER)
+    p = Variable("p")
+    a = Variable("a")
+    loss = build_loss(x, y, p, a, steepness, num_blocks, penalty_weight, device="cuda")
     # Create solution mapping network
     rel_func = MLPBnDrop(insize=num_blocks + 1, outsize=2 * num_blocks,
                           hsizes=[hsize] * hlayers_sol,
                           nonlin=nn.ReLU)
-    rel= RelaxationNode(rel_func, ["p", "a"], ["x", "y"], sizes=[num_blocks, num_blocks], name="relaxation")
+    rel= RelaxationNode(rel_func, [p, a], [x, y], sizes=[num_blocks, num_blocks], name="relaxation")
     # Create rounding network and operator
     rnd_net = MLPBnDrop(insize=3 * num_blocks + 1, outsize=2 * num_blocks,
                         hsizes=[hsize] * hlayers_rnd)
-    rnd = StochasticAdaptiveSelectionRounding(
-        vars=[x, y], param_keys=["p", "a"], net=rnd_net, continuous_update=True)
+    rnd = StochasticAdaptiveSelectionRounding(rnd_net, [p, a], [x, y], continuous_update=True)
     # Set up solver
     solver = LearnableSolver(rel, rnd, loss)
     # Set up optimizer
@@ -312,17 +317,20 @@ def run_DT(loader_train, loader_test, loader_val, config):
     lr = config.lr
     penalty_weight = config.penalty
     # Build loss and get typed variables
-    loss, x, y = build_loss(steepness, num_blocks, penalty_weight, device="cuda")
+    x = TypeVariable("x", num_vars=num_blocks)
+    y = TypeVariable("y", num_vars=num_blocks, var_types=VarType.INTEGER)
+    p = Variable("p")
+    a = Variable("a")
+    loss = build_loss(x, y, p, a, steepness, num_blocks, penalty_weight, device="cuda")
     # Create solution mapping network
     rel_func = MLPBnDrop(insize=num_blocks + 1, outsize=2 * num_blocks,
                           hsizes=[hsize] * hlayers_sol,
                           nonlin=nn.ReLU)
-    rel= RelaxationNode(rel_func, ["p", "a"], ["x", "y"], sizes=[num_blocks, num_blocks], name="relaxation")
+    rel= RelaxationNode(rel_func, [p, a], [x, y], sizes=[num_blocks, num_blocks], name="relaxation")
     # Create rounding network and operator
     rnd_net = MLPBnDrop(insize=3 * num_blocks + 1, outsize=2 * num_blocks,
                         hsizes=[hsize] * hlayers_rnd)
-    rnd = DynamicThresholdRounding(
-        vars=[x, y], param_keys=["p", "a"], net=rnd_net, continuous_update=True)
+    rnd = DynamicThresholdRounding(rnd_net, [p, a], [x, y], continuous_update=True)
     # Set up solver
     solver = LearnableSolver(rel, rnd, loss)
     # Set up optimizer
@@ -357,14 +365,18 @@ def run_RS(loader_train, loader_test, loader_val, config):
     lr = config.lr
     penalty_weight = config.penalty
     # Build loss and get typed variables
-    loss, x, y = build_loss(steepness, num_blocks, penalty_weight, device="cuda")
+    x = TypeVariable("x", num_vars=num_blocks)
+    y = TypeVariable("y", num_vars=num_blocks, var_types=VarType.INTEGER)
+    p = Variable("p")
+    a = Variable("a")
+    loss = build_loss(x, y, p, a, steepness, num_blocks, penalty_weight, device="cuda")
     # Create solution mapping network
     rel_func = MLPBnDrop(insize=num_blocks + 1, outsize=2 * num_blocks,
                           hsizes=[hsize] * hlayers_sol,
                           nonlin=nn.ReLU)
-    rel= RelaxationNode(rel_func, ["p", "a"], ["x", "y"], sizes=[num_blocks, num_blocks], name="relaxation")
+    rel= RelaxationNode(rel_func, [p, a], [x, y], sizes=[num_blocks, num_blocks], name="relaxation")
     # Create rounding operator
-    rnd = StochasticSTERounding(vars=[x, y])
+    rnd = StochasticSTERounding([x, y])
     # Set up solver
     solver = LearnableSolver(rel, rnd, loss)
     # Set up optimizer
@@ -400,12 +412,16 @@ def run_LR(loader_train, loader_test, loader_val, config):
     lr = config.lr
     penalty_weight = config.penalty
     # Build loss (relaxed: loss reads x_rel/y_rel directly, no rounding layer)
-    loss, _, _ = build_loss(steepness, num_blocks, penalty_weight, device="cuda", relaxed=True)
+    x = TypeVariable("x", num_vars=num_blocks)
+    y = TypeVariable("y", num_vars=num_blocks, var_types=VarType.INTEGER)
+    p = Variable("p")
+    a = Variable("a")
+    loss = build_loss(x, y, p, a, steepness, num_blocks, penalty_weight, device="cuda", relaxed=True)
     # Create solution mapping network
     rel_func = MLPBnDrop(insize=num_blocks + 1, outsize=2 * num_blocks,
                           hsizes=[hsize] * hlayers_sol,
                           nonlin=nn.ReLU)
-    rel= RelaxationNode(rel_func, ["p", "a"], ["x", "y"], sizes=[num_blocks, num_blocks], name="relaxation")
+    rel= RelaxationNode(rel_func, [p, a], [x, y], sizes=[num_blocks, num_blocks], name="relaxation")
     # Set up problem and train
     problem = Problem(nodes=[rel], loss=loss)
     problem.to("cuda")

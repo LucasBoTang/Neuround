@@ -63,23 +63,26 @@ class LearnableSolver:
             )
 
     def _validate_dimension_alignment(self):
-        """Check rounding indices do not exceed relaxation output dimension."""
-        # Get relaxation output dimension
+        """Check rounding indices do not exceed each variable's own dimension."""
+        # Per-variable index check
+        for var in self.rounding_node.vars:
+            all_idx = var.integer_indices + var.binary_indices
+            if all_idx and max(all_idx) >= var.num_vars:
+                raise ValueError(
+                    f"Variable '{var.key}': rounding index "
+                    f"{max(all_idx)} >= variable dim {var.num_vars}"
+                )
+        # Total output dimension check
         out_dim = getattr(self.relaxation_node.callable, 'out_features', None)
-        # Fallback to 'outsize' attribute if 'out_features' is not available
         if out_dim is None:
             out_dim = getattr(self.relaxation_node.callable, 'outsize', None)
-        # Check against rounding variable indices
         if out_dim is not None:
-            # Collect rounding indices
-            for var in self.rounding_node.vars:
-                # Check integer and binary indices against relaxation output dimension
-                all_idx = var.integer_indices + var.binary_indices
-                if all_idx and max(all_idx) >= out_dim:
-                    raise ValueError(
-                        f"Variable '{var.key}': rounding index "
-                        f"{max(all_idx)} >= relaxation output dim {out_dim}"
-                    )
+            total_vars = self.rounding_node.num_vars
+            if out_dim != total_vars:
+                raise ValueError(
+                    f"Relaxation output dim {out_dim} != "
+                    f"total rounding variable dim {total_vars}"
+                )
 
     def _build_problem(self):
         """Assemble neuromancer Problem from relaxation and rounding nodes."""
