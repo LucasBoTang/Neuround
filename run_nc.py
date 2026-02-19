@@ -68,12 +68,15 @@ data_test = DictDataset({"b": b_samples[itest], "d": d_samples[itest]}, name="te
 data_val = DictDataset({"b": b_samples[ival], "d": d_samples[ival]}, name="dev")
 # torch dataloaders
 from torch.utils.data import DataLoader
-loader_train = DataLoader(data_train, config.batch_size, num_workers=0,
-                          collate_fn=data_train.collate_fn, shuffle=True, pin_memory=True)
-loader_test  = DataLoader(data_test, config.batch_size, num_workers=0,
-                          collate_fn=data_test.collate_fn, shuffle=False, pin_memory=True)
-loader_val   = DataLoader(data_val, config.batch_size, num_workers=0,
-                          collate_fn=data_val.collate_fn, shuffle=False, pin_memory=True)
+loader_train = DataLoader(data_train, config.batch_size, num_workers=4,
+                          collate_fn=data_train.collate_fn, shuffle=True,
+                          pin_memory=True, persistent_workers=True)
+loader_test  = DataLoader(data_test, config.batch_size, num_workers=4,
+                          collate_fn=data_test.collate_fn, shuffle=False,
+                          pin_memory=True, persistent_workers=True)
+loader_val   = DataLoader(data_val, config.batch_size, num_workers=4,
+                          collate_fn=data_val.collate_fn, shuffle=False,
+                          pin_memory=True, persistent_workers=True)
 
 print("Simple Non-Convex")
 #if config.project is False:
