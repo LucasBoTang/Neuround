@@ -27,11 +27,6 @@ class TestPackageImport:
 class TestNeuromancerReExports:
     """Test that neuromancer components are re-exported correctly."""
 
-    def test_node(self):
-        from reins import Node
-        from neuromancer.system import Node as Node_orig
-        assert Node is Node_orig
-
     def test_dict_dataset(self):
         from reins import DictDataset
         from neuromancer.dataset import DictDataset as DD_orig
@@ -65,7 +60,7 @@ class TestNeuromancerReExports:
     def test_all_exports_listed(self):
         import reins
         expected = [
-            "Node", "DictDataset", "Trainer",
+            "DictDataset", "Trainer",
             "Objective", "Constraint", "PenaltyLoss", "Problem",
             "MLPBnDrop", "VarType", "variable",
             "GradientProjection", "LearnableSolver",
