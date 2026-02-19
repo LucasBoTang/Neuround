@@ -5,8 +5,8 @@ Experiment pipeline for Mixed-Integer Rosenbrock (MIRB)
 using the reins API.
 
 This problem has mixed variable types:
-  - x[2i]   (even indices) → CONTINUOUS
-  - x[2i+1] (odd indices)  → INTEGER
+  - x → CONTINUOUS (num_blocks vars)
+  - y → INTEGER    (num_blocks vars)
 
 Legacy mapping:
   - nmRosenbrock (custom penaltyLoss) → PenaltyLoss via operator overloading
@@ -28,7 +28,9 @@ from reins import (
     variable, PenaltyLoss, Node, MLPBnDrop, GradientProjection,
     LearnableSolver,
 )
-from reins.rounding import (
+from reins.variable import VarType
+from reins.node import RelaxationNode
+from reins.node.rounding import (
     StochasticSTERounding,
     DynamicThresholdRounding,
     StochasticAdaptiveSelectionRounding,
@@ -45,37 +47,37 @@ def _coefficients(num_blocks):
     return b, q
 
 
-def build_loss(steepness, num_blocks, penalty_weight, device="cpu"):
+def build_loss(steepness, num_blocks, penalty_weight, device="cpu", relaxed=False):
     """
     Build PenaltyLoss for the Rosenbrock problem.
 
-    min  sum_i (a_i - x_{2i})^2 + steepness * (x_{2i+1} - x_{2i}^2)^2
-    s.t. sum(x_odd) >= num_blocks * p / 2       (inner)
-         sum(x_even^2) <= num_blocks * p         (outer)
-         b^T x_even <= 0                         (linear 1)
-         q^T x_odd <= 0                          (linear 2)
+    min  sum_i (a_i - x_i)^2 + steepness * (y_i - x_i^2)^2
+    s.t. sum(y) >= num_blocks * p / 2       (inner)
+         sum(x^2) <= num_blocks * p          (outer)
+         b^T x <= 0                          (linear 1)
+         q^T y <= 0                          (linear 2)
     """
-    b_coef, q_coef = _coefficients(num_blocks)
-    b_coef, q_coef = b_coef.to(device), q_coef.to(device)
-    x = variable("x")
+    x = variable("x", num_vars=num_blocks)
+    y = variable("y", num_vars=num_blocks, var_types=VarType.INTEGER)
     a = variable("a")
     p = variable("p")
-    # slicing: even/odd indices
-    x_even = x[:, ::2]   # continuous vars
-    x_odd = x[:, 1::2]   # integer vars
+    x_expr = x.relaxed if relaxed else x
+    y_expr = y.relaxed if relaxed else y
+    b_coef, q_coef = _coefficients(num_blocks)
+    b_coef, q_coef = b_coef.to(device), q_coef.to(device)
     # objective
-    f = torch.sum((a - x_even) ** 2 + steepness * (x_odd - x_even ** 2) ** 2, dim=1)
+    f = torch.sum((a - x_expr) ** 2 + steepness * (y_expr - x_expr ** 2) ** 2, dim=1)
     obj = f.minimize(weight=1.0, name="obj")
     # constraints
-    inner = penalty_weight * (num_blocks * p[:, 0:1] / 2 <= torch.sum(x_odd, dim=1, keepdim=True))
+    inner = penalty_weight * (num_blocks * p[:, 0:1] / 2 <= torch.sum(y_expr, dim=1, keepdim=True))
     inner.name = "inner"
-    outer = penalty_weight * (torch.sum(x_even ** 2, dim=1, keepdim=True) <= num_blocks * p[:, 0:1])
+    outer = penalty_weight * (torch.sum(x_expr ** 2, dim=1, keepdim=True) <= num_blocks * p[:, 0:1])
     outer.name = "outer"
-    linear1 = penalty_weight * ((x_even @ b_coef) <= 0)
+    linear1 = penalty_weight * ((x_expr @ b_coef) <= 0)
     linear1.name = "linear1"
-    linear2 = penalty_weight * ((x_odd @ q_coef) <= 0)
+    linear2 = penalty_weight * ((y_expr @ q_coef) <= 0)
     linear2.name = "linear2"
-    return PenaltyLoss(objectives=[obj], constraints=[inner, outer, linear1, linear2])
+    return PenaltyLoss(objectives=[obj], constraints=[inner, outer, linear1, linear2]), x, y
 
 def run_EX(loader_test, config):
     # Set random seeds
@@ -106,7 +108,7 @@ def run_EX(loader_test, config):
         try:
             xval, objval = model.solve()
             tock = time.time()
-            sols.append(list(list(xval.values())[0].values()))
+            sols.append(list(xval["x"].values()) + list(xval["y"].values()))
             objvals.append(objval)
             viol = model.cal_violation()
             mean_viols.append(np.mean(viol))
@@ -164,7 +166,7 @@ def run_RR(loader_test, config):
             xval_rel, _ = model_rel.solve()
             xval, objval = naive_round(xval_rel, model)
             tock = time.time()
-            sols.append(list(list(xval.values())[0].values()))
+            sols.append(list(xval["x"].values()) + list(xval["y"].values()))
             objvals.append(objval)
             viol = model.cal_violation()
             mean_viols.append(np.mean(viol))
@@ -220,7 +222,7 @@ def run_N1(loader_test, config):
         try:
             xval, objval = model_heur.solve()
             tock = time.time()
-            sols.append(list(list(xval.values())[0].values()))
+            sols.append(list(xval["x"].values()) + list(xval["y"].values()))
             objvals.append(objval)
             viol = model_heur.cal_violation()
             mean_viols.append(np.mean(viol))
@@ -263,23 +265,20 @@ def run_AS(loader_train, loader_test, loader_val, config):
     hlayers_rnd = config.hlayers_rnd
     lr = config.lr
     penalty_weight = config.penalty
-    # Create symbolic variables (mixed types: even → continuous, odd → integer)
-    x = variable("x", num_vars=2 * num_blocks,
-                 integer_indices=list(range(1, 2 * num_blocks, 2)))
+    # Build loss and get typed variables
+    loss, x, y = build_loss(steepness, num_blocks, penalty_weight, device="cuda")
     # Create solution mapping network
-    smap_func = MLPBnDrop(insize=num_blocks + 1, outsize=2 * num_blocks,
+    rel_func = MLPBnDrop(insize=num_blocks + 1, outsize=2 * num_blocks,
                           hsizes=[hsize] * hlayers_sol,
                           nonlin=nn.ReLU)
-    smap = Node(smap_func, ["p", "a"], [x.relaxed.key], name="smap")
+    rel= RelaxationNode(rel_func, ["p", "a"], ["x", "y"], sizes=[num_blocks, num_blocks], name="relaxation")
     # Create rounding network and operator
     rnd_net = MLPBnDrop(insize=3 * num_blocks + 1, outsize=2 * num_blocks,
                         hsizes=[hsize] * hlayers_rnd)
     rnd = StochasticAdaptiveSelectionRounding(
-        vars=x, param_keys=["p", "a"], net=rnd_net, continuous_update=True)
-    # Build loss
-    loss = build_loss(steepness, num_blocks, penalty_weight, device="cuda")
+        vars=[x, y], param_keys=["p", "a"], net=rnd_net, continuous_update=True)
     # Set up solver
-    solver = LearnableSolver(smap, rnd, loss)
+    solver = LearnableSolver(rel, rnd, loss)
     # Set up optimizer
     optimizer = torch.optim.AdamW(solver.problem.parameters(), lr=lr)
     # Train
@@ -312,23 +311,20 @@ def run_DT(loader_train, loader_test, loader_val, config):
     hlayers_rnd = config.hlayers_rnd
     lr = config.lr
     penalty_weight = config.penalty
-    # Create symbolic variables
-    x = variable("x", num_vars=2 * num_blocks,
-                 integer_indices=list(range(1, 2 * num_blocks, 2)))
+    # Build loss and get typed variables
+    loss, x, y = build_loss(steepness, num_blocks, penalty_weight, device="cuda")
     # Create solution mapping network
-    smap_func = MLPBnDrop(insize=num_blocks + 1, outsize=2 * num_blocks,
+    rel_func = MLPBnDrop(insize=num_blocks + 1, outsize=2 * num_blocks,
                           hsizes=[hsize] * hlayers_sol,
                           nonlin=nn.ReLU)
-    smap = Node(smap_func, ["p", "a"], [x.relaxed.key], name="smap")
+    rel= RelaxationNode(rel_func, ["p", "a"], ["x", "y"], sizes=[num_blocks, num_blocks], name="relaxation")
     # Create rounding network and operator
     rnd_net = MLPBnDrop(insize=3 * num_blocks + 1, outsize=2 * num_blocks,
                         hsizes=[hsize] * hlayers_rnd)
     rnd = DynamicThresholdRounding(
-        vars=x, param_keys=["p", "a"], net=rnd_net, continuous_update=True)
-    # Build loss
-    loss = build_loss(steepness, num_blocks, penalty_weight, device="cuda")
+        vars=[x, y], param_keys=["p", "a"], net=rnd_net, continuous_update=True)
     # Set up solver
-    solver = LearnableSolver(smap, rnd, loss)
+    solver = LearnableSolver(rel, rnd, loss)
     # Set up optimizer
     optimizer = torch.optim.AdamW(solver.problem.parameters(), lr=lr)
     # Train
@@ -360,20 +356,17 @@ def run_RS(loader_train, loader_test, loader_val, config):
     hlayers_sol = config.hlayers_sol
     lr = config.lr
     penalty_weight = config.penalty
-    # Create symbolic variables
-    x = variable("x", num_vars=2 * num_blocks,
-                 integer_indices=list(range(1, 2 * num_blocks, 2)))
+    # Build loss and get typed variables
+    loss, x, y = build_loss(steepness, num_blocks, penalty_weight, device="cuda")
     # Create solution mapping network
-    smap_func = MLPBnDrop(insize=num_blocks + 1, outsize=2 * num_blocks,
+    rel_func = MLPBnDrop(insize=num_blocks + 1, outsize=2 * num_blocks,
                           hsizes=[hsize] * hlayers_sol,
                           nonlin=nn.ReLU)
-    smap = Node(smap_func, ["p", "a"], [x.relaxed.key], name="smap")
+    rel= RelaxationNode(rel_func, ["p", "a"], ["x", "y"], sizes=[num_blocks, num_blocks], name="relaxation")
     # Create rounding operator
-    rnd = StochasticSTERounding(vars=x)
-    # Build loss
-    loss = build_loss(steepness, num_blocks, penalty_weight, device="cuda")
+    rnd = StochasticSTERounding(vars=[x, y])
     # Set up solver
-    solver = LearnableSolver(smap, rnd, loss)
+    solver = LearnableSolver(rel, rnd, loss)
     # Set up optimizer
     optimizer = torch.optim.AdamW(solver.problem.parameters(), lr=lr)
     # Train
@@ -406,15 +399,15 @@ def run_LR(loader_train, loader_test, loader_val, config):
     hlayers_sol = config.hlayers_sol
     lr = config.lr
     penalty_weight = config.penalty
-    # Create solution mapping network (no rounding layer)
-    smap_func = MLPBnDrop(insize=num_blocks + 1, outsize=2 * num_blocks,
+    # Build loss (relaxed: loss reads x_rel/y_rel directly, no rounding layer)
+    loss, _, _ = build_loss(steepness, num_blocks, penalty_weight, device="cuda", relaxed=True)
+    # Create solution mapping network
+    rel_func = MLPBnDrop(insize=num_blocks + 1, outsize=2 * num_blocks,
                           hsizes=[hsize] * hlayers_sol,
                           nonlin=nn.ReLU)
-    smap = Node(smap_func, ["p", "a"], ["x"], name="smap")
-    # Build loss
-    loss = build_loss(steepness, num_blocks, penalty_weight, device="cuda")
+    rel= RelaxationNode(rel_func, ["p", "a"], ["x", "y"], sizes=[num_blocks, num_blocks], name="relaxation")
     # Set up problem and train
-    problem = Problem(nodes=[smap], loss=loss)
+    problem = Problem(nodes=[rel], loss=loss)
     problem.to("cuda")
     optimizer = torch.optim.AdamW(problem.parameters(), lr=lr)
     trainer = Trainer(problem, loader_train, loader_val,
@@ -433,10 +426,11 @@ def run_LR(loader_train, loader_test, loader_val, config):
     problem.eval()
     tick_inf = time.time()
     with torch.no_grad():
-        test_results = smap({"p": p_test_all, "a": a_test_all})
+        test_results = rel({"p": p_test_all, "a": a_test_all})
     tock_inf = time.time()
     # Convert results to numpy for post-processing
-    x_all_np = test_results["x"].detach().cpu().numpy()
+    x_all_np = test_results["x_rel"].detach().cpu().numpy()
+    y_all_np = test_results["y_rel"].detach().cpu().numpy()
     p_all_np = p_test_all.detach().cpu().numpy()
     a_all_np = a_test_all.detach().cpu().numpy()
     inf_time_per_sample = (tock_inf - tick_inf) / 100
@@ -446,10 +440,12 @@ def run_LR(loader_train, loader_test, loader_val, config):
         model.set_param_val({"p": p_np, "a": a_np})
         for j, val in enumerate(x_all_np[i]):
             model.vars["x"][j].value = val
+        for j, val in enumerate(y_all_np[i]):
+            model.vars["y"][j].value = val
         xval_rel, _ = model.get_val()
         xval, objval = naive_round(xval_rel, model)
         params.append(p_np.tolist() + a_np.tolist())
-        sols.append(list(list(xval.values())[0].values()))
+        sols.append(list(xval["x"].values()) + list(xval["y"].values()))
         objvals.append(objval)
         viol = model.cal_violation()
         mean_viols.append(np.mean(viol))
@@ -479,6 +475,7 @@ def evaluate(solver, model, loader_test):
     tock_inf = time.time()
     # Convert results to numpy for post-processing
     x_all_np = test_results["x"].detach().cpu().numpy()
+    y_all_np = test_results["y"].detach().cpu().numpy()
     p_all_np = p_test_all.detach().cpu().numpy()
     a_all_np = a_test_all.detach().cpu().numpy()
     inf_time_per_sample = (tock_inf - tick_inf) / 100
@@ -488,11 +485,13 @@ def evaluate(solver, model, loader_test):
         model.set_param_val({"p": p_np, "a": a_np})
         for j, val in enumerate(x_all_np[i]):
             model.vars["x"][j].value = val
+        for j, val in enumerate(y_all_np[i]):
+            model.vars["y"][j].value = val
         # Get solution and objective value
         xval, objval = model.get_val()
         # Record results
         params.append(p_np.tolist() + a_np.tolist())
-        sols.append(list(list(xval.values())[0].values()))
+        sols.append(list(xval["x"].values()) + list(xval["y"].values()))
         objvals.append(objval)
         viol = model.cal_violation()
         mean_viols.append(np.mean(viol))
