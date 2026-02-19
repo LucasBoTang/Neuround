@@ -122,11 +122,11 @@ class TestLearnableSolverConstruction:
             LearnableSolver(bad_rel, rounding, loss)
 
     def test_dimension_mismatch_raises(self, loss):
-        """Should raise ValueError when rounding indices exceed relaxation output dim."""
+        """Should raise ValueError when relaxation output dim != total rounding variable dim."""
         var = _make_var("x", 3, integer_indices=[0, 1, 2])
         rel = _make_relaxation("b", "x_rel", insize=4, outsize=2)
         rnd = STERounding(var)
-        with pytest.raises(ValueError, match="rounding index"):
+        with pytest.raises(ValueError, match="Relaxation output dim"):
             LearnableSolver(rel, rnd, loss)
 
     def test_dimension_check_skipped_without_attribute(self, loss):

@@ -1,5 +1,5 @@
 """
-Network blocks for NeuroPMINLP.
+Network blocks for REINS.
 """
 
 import torch

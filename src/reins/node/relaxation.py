@@ -35,6 +35,14 @@ class RelaxationNode(Node):
         super().__init__(callable, input_keys, output_keys, name=name)
         self.sizes = sizes
 
+        # Validate sizes against network output dimension at init time
+        if sizes is not None:
+            out_dim = getattr(callable, 'out_features', None) or getattr(callable, 'outsize', None)
+            if out_dim is not None and sum(sizes) != out_dim:
+                raise ValueError(
+                    f"Sum of sizes {sum(sizes)} != network output dim {out_dim}."
+                )
+
     def forward(self, data):
         # Concatenate inputs if multiple keys
         inputs = [data[k] for k in self.input_keys]

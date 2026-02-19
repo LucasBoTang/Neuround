@@ -25,7 +25,7 @@ from torch import nn
 from tqdm import tqdm
 
 from reins import (
-    variable, PenaltyLoss, Node, MLPBnDrop, GradientProjection,
+    variable, PenaltyLoss, MLPBnDrop,
     LearnableSolver,
 )
 from reins.variable import VarType
