@@ -59,7 +59,7 @@ class TestNeuromancerReExports:
         expected = [
             "DictDataset", "Trainer",
             "Objective", "Constraint", "PenaltyLoss", "Problem",
-            "MLPBnDrop", "VarType", "variable",
+            "MLPBnDrop", "VarType", "TypeVariable", "Variable",
             "LearnableSolver",
         ]
         for name in expected:

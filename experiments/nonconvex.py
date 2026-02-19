@@ -21,7 +21,7 @@ from torch import nn
 from tqdm import tqdm
 
 from reins import (
-    variable, PenaltyLoss, MLPBnDrop,
+    Variable, TypeVariable, PenaltyLoss, MLPBnDrop,
     LearnableSolver,
 )
 from reins.variable import VarType
@@ -57,10 +57,10 @@ def build_loss(num_var, num_ineq, penalty_weight, device="cpu", relaxed=False):
     Returns:
         (PenaltyLoss, x) where x is the typed symbolic variable.
     """
-    x = variable("x", num_vars=num_var, var_types=VarType.INTEGER)
-    b = variable("b")
-    d = variable("d")
-    x_expr = x.relaxed if relaxed else x
+    x = TypeVariable("x", num_vars=num_var, var_types=VarType.INTEGER)
+    b = Variable("b")
+    d = Variable("d")
+    x_expr = x.relaxed if relaxed else x.variable
     Q, p, A = _coefficients(num_var, num_ineq)
     Q, p, A = Q.to(device), p.to(device), A.to(device)
     # objective (nonconvex due to sin)
