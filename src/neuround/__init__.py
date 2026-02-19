@@ -8,6 +8,7 @@ from neuromancer.dataset import DictDataset
 from neuromancer.constraint import Objective, Constraint
 from neuromancer.loss import PenaltyLoss
 from neuromancer.problem import Problem
+from neuromancer.trainer import Trainer
 
 # ---- neuround modules ----
 from neuround.blocks import MLPBnDrop
@@ -25,18 +26,3 @@ __all__ = [
     "GradientProjection",
     "LearnableSolver",
 ]
-
-
-def __getattr__(name):
-    if name == "Trainer":
-        from neuromancer.trainer import Trainer as _BaseTrainer
-        from neuround.solver import fast
-
-        class Trainer(_BaseTrainer):
-            """Trainer with implicit torch.compile."""
-            def __init__(self, problem, *args, device="cpu", compile=True, **kwargs):
-                super().__init__(fast(problem, device, compile=compile), *args,
-                                 device=device, **kwargs)
-
-        return Trainer
-    raise AttributeError(f"module 'neuround' has no attribute {name!r}")

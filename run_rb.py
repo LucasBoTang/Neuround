@@ -33,10 +33,6 @@ parser.add_argument("--penalty",
 parser.add_argument("--project",
                     action="store_true",
                     help="project gradient")
-parser.add_argument("--no_compile",
-                    action="store_false",
-                    dest="compile",
-                    help="disable torch.compile")
 config = parser.parse_args()
 
 # init problem
