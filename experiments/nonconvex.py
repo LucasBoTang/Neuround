@@ -271,7 +271,7 @@ def run_AS(loader_train, loader_test, loader_val, config):
     # Set up optimizer
     optimizer = torch.optim.AdamW(solver.problem.parameters(), lr=lr)
     # Train
-    solver.train(loader_train, loader_val, optimizer, device="cuda", compile=config.compile)
+    solver.train(loader_train, loader_val, optimizer, device="cuda")
     # Evaluate on test set
     from experiments.math_solver.nonconvex import nonconvex
     model = nonconvex(num_var, num_ineq, timelimit=1000)
@@ -319,7 +319,7 @@ def run_DT(loader_train, loader_test, loader_val, config):
     # Set up optimizer
     optimizer = torch.optim.AdamW(solver.problem.parameters(), lr=lr)
     # Train
-    solver.train(loader_train, loader_val, optimizer, device="cuda", compile=config.compile)
+    solver.train(loader_train, loader_val, optimizer, device="cuda")
     # Evaluate on test set
     from experiments.math_solver.nonconvex import nonconvex
     model = nonconvex(num_var, num_ineq, timelimit=1000)
@@ -363,7 +363,7 @@ def run_RS(loader_train, loader_test, loader_val, config):
     # Set up optimizer
     optimizer = torch.optim.AdamW(solver.problem.parameters(), lr=lr)
     # Train
-    solver.train(loader_train, loader_val, optimizer, device="cuda", compile=config.compile)
+    solver.train(loader_train, loader_val, optimizer, device="cuda")
     # Evaluate on test set
     from experiments.math_solver.nonconvex import nonconvex
     model = nonconvex(num_var, num_ineq, timelimit=1000)
@@ -404,12 +404,9 @@ def run_LR(loader_train, loader_test, loader_val, config):
     problem.to("cuda")
     optimizer = torch.optim.AdamW(problem.parameters(), lr=lr)
     trainer = Trainer(problem, loader_train, loader_val,
-                      optimizer=optimizer, device="cuda", 
-                      compile=config.compile)
+                      optimizer=optimizer, device="cuda")
     best_model = trainer.train()
-    # Strip "_orig_mod." prefix added by torch.compile if present
-    clean = {k.removeprefix("_orig_mod."): v for k, v in best_model.items()}
-    problem.load_state_dict(clean)
+    problem.load_state_dict(best_model)
     # Evaluate with naive rounding
     from experiments.heuristic import naive_round
     from experiments.math_solver.nonconvex import nonconvex

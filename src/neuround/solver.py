@@ -2,41 +2,11 @@
 LearnableSolver: convenience wrapper for end-to-end learnable MINLP solver.
 """
 
-import functools
-
 import torch
 
 from neuromancer.problem import Problem
 
 from neuround.projection.gradient import GradientProjection
-
-
-def fast(problem, device="cuda", compile=True):
-    """
-    Decorate a Problem with torch.compile + AMP autocast.
-
-    Applied implicitly inside the package — users never call this
-    directly.  Works transparently with neuromancer Trainer.
-
-    Args:
-        problem: neuromancer Problem instance.
-        device: Target device (AMP is enabled only for "cuda").
-
-    Returns:
-        The (possibly compiled) problem with autocast-wrapped forward.
-    """
-    # Removed AMP autocast wrapper
-
-    # torch.compile for graph-level fusion (graceful fallback)
-    if compile:
-        try:
-            import torch._dynamo
-            torch._dynamo.config.recompile_limit = 32
-            problem = torch.compile(problem)
-        except Exception:
-            pass
-
-    return problem
 
 
 class LearnableSolver:
@@ -138,9 +108,9 @@ class LearnableSolver:
 
     def train(self, loader_train, loader_val, optimizer,
               epochs=200, patience=20, warmup=20,
-              device="cpu", compile=True):
+              device="cpu"):
         """
-        Train the solver with optional torch.compile.
+        Train the solver.
 
         Args:
             loader_train: Training DataLoader.
@@ -154,17 +124,14 @@ class LearnableSolver:
         from neuromancer.trainer import Trainer
 
         self.problem.to(device)
-        decorated = fast(self.problem, device=device, compile=compile)
         trainer = Trainer(
-            decorated, loader_train, loader_val,
+            self.problem, loader_train, loader_val,
             optimizer=optimizer, epochs=epochs,
             patience=patience, warmup=warmup,
             device=device,
         )
         best_model = trainer.train()
-        # Strip "_orig_mod." prefix added by torch.compile
-        clean = {k.removeprefix("_orig_mod."): v for k, v in best_model.items()}
-        self.problem.load_state_dict(clean)
+        self.problem.load_state_dict(best_model)
 
     def predict(self, data):
         """
