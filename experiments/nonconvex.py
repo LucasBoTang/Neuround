@@ -21,10 +21,12 @@ from torch import nn
 from tqdm import tqdm
 
 from reins import (
-    variable, PenaltyLoss, Node, MLPBnDrop, GradientProjection,
+    variable, PenaltyLoss, MLPBnDrop, GradientProjection,
     LearnableSolver,
 )
-from reins.rounding import (
+from reins.variable import VarType
+from reins.node import RelaxationNode
+from reins.node.rounding import (
     StochasticSTERounding,
     DynamicThresholdRounding,
     StochasticAdaptiveSelectionRounding,
@@ -42,26 +44,33 @@ def _coefficients(num_var, num_ineq):
     return Q, p, A
 
 
-def build_loss(num_var, num_ineq, penalty_weight, device="cpu"):
+def build_loss(num_var, num_ineq, penalty_weight, device="cpu", relaxed=False):
     """
     Build PenaltyLoss for the nonconvex problem.
 
     min  (1/2) x^T Q x + p^T sin(x)
     s.t. A(d)x <= b  where A(d) perturbs col 0 by +d, col 1 by -d
+
+    Args:
+        relaxed: If True, loss expression uses x.relaxed (reads "x_rel").
+
+    Returns:
+        (PenaltyLoss, x) where x is the typed symbolic variable.
     """
-    Q, p, A = _coefficients(num_var, num_ineq)
-    Q, p, A = Q.to(device), p.to(device), A.to(device)
-    x = variable("x")
+    x = variable("x", num_vars=num_var, var_types=VarType.INTEGER)
     b = variable("b")
     d = variable("d")
+    x_expr = x.relaxed if relaxed else x
+    Q, p, A = _coefficients(num_var, num_ineq)
+    Q, p, A = Q.to(device), p.to(device), A.to(device)
     # objective (nonconvex due to sin)
-    f = 0.5 * torch.sum((x @ Q) * x, dim=1) + torch.sum(p * torch.sin(x), dim=1)
+    f = 0.5 * torch.sum((x_expr @ Q) * x_expr, dim=1) + torch.sum(p * torch.sin(x_expr), dim=1)
     obj = f.minimize(weight=1.0, name="obj")
     # parameterized constraint: A(d)x = Ax + d*(x_0 - x_1) <= b
-    lhs = x @ A.T + d * (x[:, [0]] - x[:, [1]])
+    lhs = x_expr @ A.T + d * (x_expr[:, [0]] - x_expr[:, [1]])
     con = penalty_weight * (lhs <= b)
     con.name = "con"
-    return PenaltyLoss(objectives=[obj], constraints=[con])
+    return PenaltyLoss(objectives=[obj], constraints=[con]), x
 
 
 def run_EX(loader_test, config):
@@ -252,22 +261,20 @@ def run_AS(loader_train, loader_test, loader_val, config):
     hlayers_rnd = config.hlayers_rnd
     lr = config.lr
     penalty_weight = config.penalty
-    # Create symbolic variables
-    x = variable("x", num_vars=num_var, integer_indices=list(range(num_var)))
+    # Build loss and get typed variable
+    loss, x = build_loss(num_var, num_ineq, penalty_weight, device="cuda")
     # Create solution mapping network
-    smap_func = MLPBnDrop(insize=num_ineq * 2, outsize=num_var,
+    rel_func = MLPBnDrop(insize=num_ineq * 2, outsize=num_var,
                           hsizes=[hsize] * hlayers_sol,
                           nonlin=nn.ReLU)
-    smap = Node(smap_func, ["b", "d"], [x.relaxed.key], name="smap")
+    rel= RelaxationNode(rel_func, ["b", "d"], ["x"], name="relaxation")
     # Create rounding network and operator
     rnd_net = MLPBnDrop(insize=num_ineq * 2 + num_var, outsize=num_var,
                         hsizes=[hsize] * hlayers_rnd)
     rnd = StochasticAdaptiveSelectionRounding(
         vars=x, param_keys=["b", "d"], net=rnd_net, continuous_update=True)
-    # Build loss
-    loss = build_loss(num_var, num_ineq, penalty_weight, device="cuda")
     # Set up solver
-    solver = LearnableSolver(smap, rnd, loss)
+    solver = LearnableSolver(rel, rnd, loss)
     # Set up optimizer
     optimizer = torch.optim.AdamW(solver.problem.parameters(), lr=lr)
     # Train
@@ -300,22 +307,20 @@ def run_DT(loader_train, loader_test, loader_val, config):
     hlayers_rnd = config.hlayers_rnd
     lr = config.lr
     penalty_weight = config.penalty
-    # Create symbolic variables
-    x = variable("x", num_vars=num_var, integer_indices=list(range(num_var)))
+    # Build loss and get typed variable
+    loss, x = build_loss(num_var, num_ineq, penalty_weight, device="cuda")
     # Create solution mapping network
-    smap_func = MLPBnDrop(insize=num_ineq * 2, outsize=num_var,
+    rel_func = MLPBnDrop(insize=num_ineq * 2, outsize=num_var,
                           hsizes=[hsize] * hlayers_sol,
                           nonlin=nn.ReLU)
-    smap = Node(smap_func, ["b", "d"], [x.relaxed.key], name="smap")
+    rel= RelaxationNode(rel_func, ["b", "d"], ["x"], name="relaxation")
     # Create rounding network and operator
     rnd_net = MLPBnDrop(insize=num_ineq * 2 + num_var, outsize=num_var,
                         hsizes=[hsize] * hlayers_rnd)
     rnd = DynamicThresholdRounding(
         vars=x, param_keys=["b", "d"], net=rnd_net, continuous_update=True)
-    # Build loss
-    loss = build_loss(num_var, num_ineq, penalty_weight, device="cuda")
     # Set up solver
-    solver = LearnableSolver(smap, rnd, loss)
+    solver = LearnableSolver(rel, rnd, loss)
     # Set up optimizer
     optimizer = torch.optim.AdamW(solver.problem.parameters(), lr=lr)
     # Train
@@ -347,19 +352,17 @@ def run_RS(loader_train, loader_test, loader_val, config):
     hlayers_sol = config.hlayers_sol
     lr = config.lr
     penalty_weight = config.penalty
-    # Create symbolic variables
-    x = variable("x", num_vars=num_var, integer_indices=list(range(num_var)))
+    # Build loss and get typed variable
+    loss, x = build_loss(num_var, num_ineq, penalty_weight, device="cuda")
     # Create solution mapping network
-    smap_func = MLPBnDrop(insize=num_ineq * 2, outsize=num_var,
+    rel_func = MLPBnDrop(insize=num_ineq * 2, outsize=num_var,
                           hsizes=[hsize] * hlayers_sol,
                           nonlin=nn.ReLU)
-    smap = Node(smap_func, ["b", "d"], [x.relaxed.key], name="smap")
+    rel= RelaxationNode(rel_func, ["b", "d"], ["x"], name="relaxation")
     # Create rounding operator
     rnd = StochasticSTERounding(vars=x)
-    # Build loss
-    loss = build_loss(num_var, num_ineq, penalty_weight, device="cuda")
     # Set up solver
-    solver = LearnableSolver(smap, rnd, loss)
+    solver = LearnableSolver(rel, rnd, loss)
     # Set up optimizer
     optimizer = torch.optim.AdamW(solver.problem.parameters(), lr=lr)
     # Train
@@ -392,15 +395,15 @@ def run_LR(loader_train, loader_test, loader_val, config):
     hlayers_sol = config.hlayers_sol
     lr = config.lr
     penalty_weight = config.penalty
+    # Build loss (relaxed: loss reads x_rel directly, no rounding layer)
+    loss, _ = build_loss(num_var, num_ineq, penalty_weight, device="cuda", relaxed=True)
     # Create solution mapping network (no rounding layer)
-    smap_func = MLPBnDrop(insize=num_ineq * 2, outsize=num_var,
+    rel_func = MLPBnDrop(insize=num_ineq * 2, outsize=num_var,
                           hsizes=[hsize] * hlayers_sol,
                           nonlin=nn.ReLU)
-    smap = Node(smap_func, ["b", "d"], ["x"], name="smap")
-    # Build loss
-    loss = build_loss(num_var, num_ineq, penalty_weight, device="cuda")
+    rel= RelaxationNode(rel_func, ["b", "d"], ["x"], name="relaxation")
     # Set up problem and train
-    problem = Problem(nodes=[smap], loss=loss)
+    problem = Problem(nodes=[rel], loss=loss)
     problem.to("cuda")
     optimizer = torch.optim.AdamW(problem.parameters(), lr=lr)
     trainer = Trainer(problem, loader_train, loader_val,
@@ -419,10 +422,10 @@ def run_LR(loader_train, loader_test, loader_val, config):
     problem.eval()
     tick_inf = time.time()
     with torch.no_grad():
-        test_results = smap({"b": b_test_all, "d": d_test_all})
+        test_results = rel({"b": b_test_all, "d": d_test_all})
     tock_inf = time.time()
     # Convert results to numpy for post-processing
-    x_all_np = test_results["x"].detach().cpu().numpy()
+    x_all_np = test_results["x_rel"].detach().cpu().numpy()
     b_all_np = b_test_all.detach().cpu().numpy()
     d_all_np = d_test_all.detach().cpu().numpy()
     inf_time_per_sample = (tock_inf - tick_inf) / 100
