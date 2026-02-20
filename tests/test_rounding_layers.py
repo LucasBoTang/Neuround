@@ -901,6 +901,132 @@ class TestRoundingNodeExport:
             RoundingNode(var)
 
 
+# ── TestNumericalDynamicThreshold ────────────────────────────────────
+
+class TestNumericalDynamicThreshold:
+    """Verify exact DynamicThresholdRounding outputs with fixed-weight networks."""
+
+    @staticmethod
+    def _fixed_net(out_features, bias_values):
+        """Create a Linear net with zero weight and fixed bias."""
+        # Total input = 4 (params) + out_features (vars)
+        net = nn.Linear(4 + out_features, out_features, bias=True)
+        nn.init.zeros_(net.weight)
+        net.bias.data = torch.tensor(bias_values, dtype=torch.float32)
+        return net
+
+    def test_integer_threshold_exact(self):
+        """Fixed bias=0 -> sigmoid(0)=0.5 threshold for integer rounding."""
+        var = _make_var("x", 2, integer_indices=[0, 1])
+        net = self._fixed_net(2, [0.0, 0.0])
+        layer = DynamicThresholdRounding(net, [p], [var], slope=10)
+        layer.eval()
+        # thresh = sigmoid(0) = 0.5
+        # x_rel=[1.3, 2.7], floor=[1.0, 2.0], frac=[0.3, 0.7]
+        # (0.3 >= 0.5)=0, (0.7 >= 0.5)=1
+        # result: [1.0+0, 2.0+1] = [1.0, 3.0]
+        data = {"x_rel": torch.tensor([[1.3, 2.7]]), "p": torch.randn(1, 4)}
+        result = layer(data)["x"]
+        expected = torch.tensor([[1.0, 3.0]])
+        assert torch.allclose(result, expected)
+
+    def test_binary_threshold_exact(self):
+        """Fixed bias=0 -> sigmoid(0)=0.5 threshold for binary rounding."""
+        var = _make_var("x", 2, binary_indices=[0, 1])
+        net = self._fixed_net(2, [0.0, 0.0])
+        layer = DynamicThresholdRounding(net, [p], [var], slope=10)
+        layer.eval()
+        # thresh = sigmoid(0) = 0.5
+        # (0.3 >= 0.5)=0, (0.7 >= 0.5)=1
+        data = {"x_rel": torch.tensor([[0.3, 0.7]]), "p": torch.randn(1, 4)}
+        result = layer(data)["x"]
+        expected = torch.tensor([[0.0, 1.0]])
+        assert torch.allclose(result, expected)
+
+    def test_high_bias_always_floor(self):
+        """Large positive bias -> sigmoid -> high threshold -> always floor."""
+        var = _make_var("x", 2, integer_indices=[0, 1])
+        net = self._fixed_net(2, [10.0, 10.0])
+        layer = DynamicThresholdRounding(net, [p], [var], slope=10)
+        layer.eval()
+        # thresh = sigmoid(10) ≈ 1.0 -> frac < 1.0 -> always 0
+        # result: floor only = [1.0, 2.0]
+        data = {"x_rel": torch.tensor([[1.9, 2.9]]), "p": torch.randn(1, 4)}
+        result = layer(data)["x"]
+        expected = torch.tensor([[1.0, 2.0]])
+        assert torch.allclose(result, expected)
+
+    def test_low_bias_always_ceil(self):
+        """Large negative bias -> sigmoid -> low threshold -> always ceil."""
+        var = _make_var("x", 2, integer_indices=[0, 1])
+        net = self._fixed_net(2, [-10.0, -10.0])
+        layer = DynamicThresholdRounding(net, [p], [var], slope=10)
+        layer.eval()
+        # thresh = sigmoid(-10) ≈ 0.0 -> any frac > 0 -> always 1
+        # result: floor + 1 = [2.0, 3.0]
+        data = {"x_rel": torch.tensor([[1.1, 2.1]]), "p": torch.randn(1, 4)}
+        result = layer(data)["x"]
+        expected = torch.tensor([[2.0, 3.0]])
+        assert torch.allclose(result, expected)
+
+
+# ── TestNumericalAdaptiveSelection ───────────────────────────────────
+
+class TestNumericalAdaptiveSelection:
+    """Verify exact AdaptiveSelectionRounding outputs with fixed-weight networks."""
+
+    @staticmethod
+    def _fixed_net(out_features, bias_values):
+        """Create a Linear net with zero weight and fixed bias."""
+        net = nn.Linear(4 + out_features, out_features, bias=True)
+        nn.init.zeros_(net.weight)
+        net.bias.data = torch.tensor(bias_values, dtype=torch.float32)
+        return net
+
+    def test_integer_selection_exact(self):
+        """Positive bias -> binarize(h)=1 -> ceil; negative -> floor."""
+        var = _make_var("x", 2, integer_indices=[0, 1])
+        net = self._fixed_net(2, [1.0, -1.0])
+        layer = AdaptiveSelectionRounding(net, [p], [var])
+        layer.eval()
+        # DiffBinarize([1.0, -1.0]) = [1.0, 0.0]
+        # x_rel=[1.3, 2.7], floor=[1.0, 2.0]
+        # frac=[0.3, 0.7], both far from 0 and 1 -> mask doesn't trigger
+        # result: [1.0+1, 2.0+0] = [2.0, 2.0]
+        data = {"x_rel": torch.tensor([[1.3, 2.7]]), "p": torch.randn(1, 4)}
+        result = layer(data)["x"]
+        expected = torch.tensor([[2.0, 2.0]])
+        assert torch.allclose(result, expected)
+
+    def test_binary_selection_exact(self):
+        """Positive bias -> binarize(h)=1; negative -> 0."""
+        var = _make_var("x", 2, binary_indices=[0, 1])
+        net = self._fixed_net(2, [1.0, -1.0])
+        layer = AdaptiveSelectionRounding(net, [p], [var])
+        layer.eval()
+        # DiffBinarize([1.0, -1.0]) = [1.0, 0.0]
+        data = {"x_rel": torch.tensor([[0.3, 0.7]]), "p": torch.randn(1, 4)}
+        result = layer(data)["x"]
+        expected = torch.tensor([[1.0, 0.0]])
+        assert torch.allclose(result, expected)
+
+    def test_int_mask_overrides_network(self):
+        """Near-integer values should override network decision via int_mask."""
+        var = _make_var("x", 2, integer_indices=[0, 1])
+        # Network says ceil (positive bias), but near-integer forces floor/ceil
+        net = self._fixed_net(2, [1.0, 1.0])
+        layer = AdaptiveSelectionRounding(net, [p], [var], tolerance=1e-2)
+        layer.eval()
+        # x_rel=[2.001, 2.999]
+        # floor=[2.0, 2.0], frac=[0.001, 0.999]
+        # frac < tolerance -> force 0 (floor): x[0] = 2.0
+        # frac > 1-tolerance -> force 1 (ceil): x[1] = 3.0
+        data = {"x_rel": torch.tensor([[2.001, 2.999]]), "p": torch.randn(1, 4)}
+        result = layer(data)["x"]
+        expected = torch.tensor([[2.0, 3.0]])
+        assert torch.allclose(result, expected)
+
+
 # ── TestNumericalFunctions ───────────────────────────────────────────
 
 class TestNumericalFunctions:
