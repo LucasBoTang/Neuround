@@ -138,10 +138,7 @@ class LearnableSolver:
 
     def predict(self, data):
         """
-        Inference: params -> projected rounded solution.
-
-        Without projection: relaxation -> rounding (no_grad).
-        With projection: relaxation (no_grad) -> projection (grad enabled).
+        Predict integer solutions from parameters.
 
         Args:
             data: Dictionary with parameter tensors.

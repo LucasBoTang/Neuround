@@ -9,14 +9,10 @@ class GradientProjection:
     """
     Gradient-based feasibility projection.
 
-    This preserves integer feasibility because x_continuous is
-    always re-rounded through the rounding layer.
-
     Args:
-        rounding_components: List of rounding modules (applied sequentially).
-        constraints: List of nm.Constraint objects (same ones used in PenaltyLoss).
-        target_keys: List of dictionary keys for relaxed variables
-            (e.g., ["x_rel", "y_rel"]).
+        rounding_components: List of rounding modules.
+        constraints: List of Constraint objects.
+        target_keys: Keys for relaxed variables to project.
         num_steps: Maximum projection iterations.
         step_size: Initial step size for gradient descent.
         decay: Step size decay factor per iteration.
@@ -39,11 +35,10 @@ class GradientProjection:
         Project relaxed variables towards feasibility.
 
         Args:
-            data: Dictionary containing target keys and parameters.
+            data: Dictionary containing variable tensors.
 
         Returns:
-            Updated dictionary with projected relaxed variables
-            and final rounded solution.
+            Updated dictionary with projected and rounded solution.
         """
         # Clone and enable grad for all target variables
         xs = {k: data[k].clone().requires_grad_(True) for k in self.target_keys}

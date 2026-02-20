@@ -61,6 +61,15 @@ class RelaxationNode(Node):
                 )
 
     def forward(self, data):
+        """
+        Run the network and split output by variable sizes.
+
+        Args:
+            data: Dictionary with parameter tensors.
+
+        Returns:
+            Dictionary mapping relaxed variable keys to tensors.
+        """
         # Concatenate inputs if multiple keys
         inputs = [data[k] for k in self.input_keys]
         x = torch.cat(inputs, dim=-1) if len(inputs) > 1 else inputs[0]

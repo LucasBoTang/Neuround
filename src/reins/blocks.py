@@ -9,24 +9,15 @@ import torch.nn as nn
 class MLPBnDrop(nn.Module):
     """
     MLP with BatchNorm and Dropout.
-    Follows neuromancer MLP interface (insize, outsize, hsizes).
-
-    Architecture:
-        [Linear -> nonlin -> BatchNorm -> Dropout] * N -> Linear
 
     Args:
-        insize: Input dimension
-        outsize: Output dimension
-        hsizes: List of hidden layer sizes
-        nonlin: Activation function class (default: nn.ReLU)
-        dropout: Dropout probability (default: 0.2, 0 to disable)
-        bnorm: Enable BatchNorm (default: True)
-        bias: Use bias in linear layers (default: True)
-
-    Example:
-        >>> net = MLPBnDrop(insize=20, outsize=10, hsizes=[64]*4)
-        >>> net = MLPBnDrop(insize=20, outsize=10, hsizes=[64]*4,
-        ...                 dropout=0.0, bnorm=False)  # equivalent to MLP
+        insize: Input dimension.
+        outsize: Output dimension.
+        hsizes: List of hidden layer sizes.
+        nonlin: Activation function class (default: nn.ReLU).
+        dropout: Dropout probability (default: 0.2, 0 to disable).
+        bnorm: Enable BatchNorm (default: True).
+        bias: Use bias in linear layers (default: True).
     """
 
     def __init__(self, insize, outsize, hsizes,

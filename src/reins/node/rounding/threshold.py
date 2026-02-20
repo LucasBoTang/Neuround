@@ -10,15 +10,12 @@ from reins.node.rounding.functions import ThresholdBinarize, GumbelThresholdBina
 
 class DynamicThresholdRounding(LearnableRoundingLayer):
     """
-    Dynamic threshold rounding with MLP-predicted thresholds.
-
-    MLP predicts per-variable thresholds from concatenated
-    problem parameters and relaxed solutions.
+    Dynamic threshold rounding with learned thresholds.
 
     Args:
         callable: Network mapping [params, vars] to per-variable outputs.
         params: Parameter Variable or list of parameter Variables.
-        vars: TypeVariable or list of TypeVariables with type metadata.
+        vars: TypeVariable or list of TypeVariables.
         continuous_update: Whether to update continuous variables (default: False).
         slope: Slope for sigmoid-smoothed binarization (default: 10).
         name: Module name.
@@ -45,13 +42,10 @@ class StochasticDynamicThresholdRounding(DynamicThresholdRounding):
     """
     Stochastic dynamic threshold rounding with Gumbel-Softmax noise.
 
-    Same as DynamicThresholdRounding but uses GumbelThresholdBinarize
-    for stochastic training and deterministic evaluation.
-
     Args:
         callable: Network mapping [params, vars] to per-variable outputs.
         params: Parameter Variable or list of parameter Variables.
-        vars: TypeVariable or list of TypeVariables with type metadata.
+        vars: TypeVariable or list of TypeVariables.
         continuous_update: Whether to update continuous variables (default: False).
         temperature: Gumbel-Softmax temperature (default: 1.0).
         name: Module name.

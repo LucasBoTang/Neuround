@@ -10,15 +10,12 @@ from reins.node.rounding.functions import DiffBinarize, DiffGumbelBinarize
 
 class AdaptiveSelectionRounding(LearnableRoundingLayer):
     """
-    Adaptive selection rounding with network-adjusted variables.
-
-    Network selects rounding direction for integer/binary variables.
-    Uses deterministic STE binarization.
+    Adaptive selection rounding with learned rounding directions.
 
     Args:
         callable: Network mapping [params, vars] to per-variable selection.
         params: Parameter Variable or list of parameter Variables.
-        vars: TypeVariable or list of TypeVariables with type metadata.
+        vars: TypeVariable or list of TypeVariables.
         continuous_update: Whether to update continuous variables (default: False).
         tolerance: Tolerance for near-integer masking (default: 1e-3).
         name: Module name.
@@ -53,13 +50,10 @@ class StochasticAdaptiveSelectionRounding(AdaptiveSelectionRounding):
     """
     Stochastic adaptive selection rounding with Gumbel-Softmax noise.
 
-    Same as AdaptiveSelectionRounding but uses DiffGumbelBinarize
-    for stochastic training and deterministic evaluation.
-
     Args:
         callable: Network mapping [params, vars] to per-variable selection.
         params: Parameter Variable or list of parameter Variables.
-        vars: TypeVariable or list of TypeVariables with type metadata.
+        vars: TypeVariable or list of TypeVariables.
         continuous_update: Whether to update continuous variables (default: False).
         temperature: Gumbel-Softmax temperature (default: 1.0).
         name: Module name.

@@ -1,15 +1,7 @@
 #!/usr/bin/env python
 # coding: utf-8
 """
-Experiment pipeline for Integer Nonconvex Problem (INC)
-using the reins API.
-
-Legacy mapping:
-  - nmNonconvex (custom penaltyLoss)   → PenaltyLoss via operator overloading
-  - roundGumbelModel                   → StochasticAdaptiveSelectionRounding
-  - roundThresholdModel                → DynamicThresholdRounding
-  - roundSTEModel                      → StochasticSTERounding
-  - netFC                              → MLPBnDrop (dropout=0.2, bnorm=True)
+Experiment pipeline for Integer Nonconvex Problem (INP).
 """
 
 import time

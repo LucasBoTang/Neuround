@@ -1,9 +1,7 @@
 import math
 
 def naive_round(xval_rel, model):
-    """
-    A method to just round
-    """
+    """Round integer variables to nearest integer."""
     # get solution value
     for k, vals in xval_rel.items():
         # assign initial solution
@@ -18,9 +16,7 @@ def naive_round(xval_rel, model):
     return xval, objval
 
 def floor_round(xval_rel, model):
-    """
-    A method to just round
-    """
+    """Round integer variables down (floor)."""
     # get solution value
     for k, vals in xval_rel.items():
         # assign initial solution

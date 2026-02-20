@@ -1,19 +1,7 @@
 #!/usr/bin/env python
 # coding: utf-8
 """
-Experiment pipeline for Mixed-Integer Rosenbrock (MIRB)
-using the reins API.
-
-This problem has mixed variable types:
-  - x → CONTINUOUS (num_blocks vars)
-  - y → INTEGER    (num_blocks vars)
-
-Legacy mapping:
-  - nmRosenbrock (custom penaltyLoss) → PenaltyLoss via operator overloading
-  - roundGumbelModel                  → StochasticAdaptiveSelectionRounding
-  - roundThresholdModel               → DynamicThresholdRounding
-  - roundSTEModel                     → StochasticSTERounding
-  - netFC                             → MLPBnDrop (dropout=0.2, bnorm=True)
+Experiment pipeline for Mixed-Integer Rosenbrock (MIRB).
 """
 
 import time

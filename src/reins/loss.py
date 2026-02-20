@@ -1,10 +1,5 @@
 """
-Loss function aggregators with sum-reduction over constraint violations.
-
-Overrides neuromancer's default mean-reduction: for a violation tensor of
-shape (batch, d1, d2, ...), each constraint's loss contribution becomes
-``weight * mean_batch( sum_{d1,d2,...}(violation) )`` instead of
-``weight * mean(violation)``.
+Loss functions for REINS.
 """
 
 import math
@@ -16,17 +11,10 @@ from neuromancer.loss import PenaltyLoss as _NMPenaltyLoss
 
 class PenaltyLoss(_NMPenaltyLoss):
     """
-    PenaltyLoss that sums constraint violations over non-batch
-    dimensions instead of averaging.
+    PenaltyLoss with sum-reduction over constraint dimensions.
 
-    For a violation tensor of shape ``(batch, d1, d2, ...)``, the loss
-    contribution of each constraint is::
-
-        weight * mean_over_batch( sum_over_d1_d2_...(violation) )
-
-    This is equivalent to the standard neuromancer ``PenaltyLoss`` with
-    ``weight *= prod(d1, d2, ...)``, but avoids the need to manually
-    scale penalty weights by constraint dimensionality.
+    Unlike neuromancer's default mean-reduction, violations are summed
+    over non-batch dimensions before averaging over the batch.
     """
 
     def calculate_constraints(self, input_dict):
