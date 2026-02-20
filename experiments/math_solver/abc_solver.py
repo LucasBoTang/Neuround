@@ -3,7 +3,6 @@ Parametric Mixed Integer Nonlinear Programming with SCIP
 """
 
 from abc import ABC, abstractmethod
-from collections.abc import Iterable
 import copy
 from pathlib import Path
 
@@ -79,7 +78,7 @@ class abcParamSolver(ABC):
             param = self.params[key]
             if isinstance(val, (np.ndarray, list)) and param.is_indexed():
                 # Pyomo bulk update for indexed params
-                param.store_values({i: v for i, v in enumerate(val)})
+                param.store_values(dict(enumerate(val)))
             # Set single value (scalar param)
             else:
                 param.set_value(val)
@@ -125,21 +124,27 @@ class abcParamSolver(ABC):
 
     def _constraint_violation(self, constr):
         """Compute the violation of a single constraint."""
-        lhs = pe.value(constr.body)
+        lhs = float(pe.value(constr.body))
         # Check if LHS is below the lower bound
-        if constr.lower is not None and lhs < pe.value(constr.lower) - 1e-5:
-            return float(pe.value(constr.lower)) - lhs
+        if constr.lower is not None:
+            lb = float(pe.value(constr.lower))
+            if lhs < lb - 1e-5:
+                return lb - lhs
         # Check if LHS is above the upper bound
-        elif constr.upper is not None and lhs > pe.value(constr.upper) + 1e-5:
-            return lhs - float(pe.value(constr.upper))
+        if constr.upper is not None:
+            ub = float(pe.value(constr.upper))
+            if lhs > ub + 1e-5:
+                return lhs - ub
         return 0.0
 
     def clone(self):
         """Return a deep copy of the solver."""
-        # Deep copy the solver
-        model_new = copy.deepcopy(self)
+        # Shallow copy the solver
+        model_new = copy.copy(self)
         # Clone Pyomo model
-        model_new.model = model_new.model.clone()
+        model_new.model = self.model.clone()
+        # Deep copy solver instance for independent options
+        model_new.opt = copy.deepcopy(self.opt)
         # Rebind variables
         model_new.vars = {var: getattr(model_new.model, var) for var in self.vars}
         # Rebind constraints
