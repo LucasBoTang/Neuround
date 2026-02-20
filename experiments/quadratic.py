@@ -78,6 +78,8 @@ def run_EX(loader_test, config):
     np.random.seed(42)
     torch.manual_seed(42)
     torch.cuda.manual_seed(42)
+    torch.backends.cudnn.deterministic = True
+    torch.backends.cudnn.benchmark = False
     # Print experiment info
     print(config)
     print(f"EX in CQ for size {config.size}.")
@@ -132,6 +134,8 @@ def run_RR(loader_test, config):
     np.random.seed(42)
     torch.manual_seed(42)
     torch.cuda.manual_seed(42)
+    torch.backends.cudnn.deterministic = True
+    torch.backends.cudnn.benchmark = False
     # Print experiment info
     print(config)
     print(f"RR in CQ for size {config.size}.")
@@ -189,6 +193,8 @@ def run_N1(loader_test, config):
     np.random.seed(42)
     torch.manual_seed(42)
     torch.cuda.manual_seed(42)
+    torch.backends.cudnn.deterministic = True
+    torch.backends.cudnn.benchmark = False
     # Print experiment info
     print(config)
     print(f"N1 in CQ for size {config.size}.")
@@ -245,6 +251,8 @@ def run_AS(loader_train, loader_test, loader_val, config):
     np.random.seed(42)
     torch.manual_seed(42)
     torch.cuda.manual_seed(42)
+    torch.backends.cudnn.deterministic = True
+    torch.backends.cudnn.benchmark = False
     # Print experiment info
     print(config)
     print(f"AS in CQ for size {config.size}.")
@@ -292,6 +300,8 @@ def run_DT(loader_train, loader_test, loader_val, config):
     np.random.seed(42)
     torch.manual_seed(42)
     torch.cuda.manual_seed(42)
+    torch.backends.cudnn.deterministic = True
+    torch.backends.cudnn.benchmark = False
     # Print experiment info
     print(config)
     print(f"DT in CQ for size {config.size}.")
@@ -339,6 +349,8 @@ def run_RS(loader_train, loader_test, loader_val, config):
     np.random.seed(42)
     torch.manual_seed(42)
     torch.cuda.manual_seed(42)
+    torch.backends.cudnn.deterministic = True
+    torch.backends.cudnn.benchmark = False
     # Print experiment info
     print(config)
     print(f"STE in CQ for size {config.size}.")
@@ -383,6 +395,8 @@ def run_LR(loader_train, loader_test, loader_val, config):
     np.random.seed(42)
     torch.manual_seed(42)
     torch.cuda.manual_seed(42)
+    torch.backends.cudnn.deterministic = True
+    torch.backends.cudnn.benchmark = False
     # Print experiment info
     print(config)
     print(f"LR in CQ for size {config.size}.")
