@@ -29,9 +29,24 @@ class RelaxationNode(Node):
         param_keys = [p.key for p in params]
         output_keys = [v.key + "_rel" for v in vars]
 
-        # Validate sizes for multi-variable output
-        if len(output_keys) > 1 and sizes is None:
-            raise ValueError("sizes is required for multi-variable output.")
+        # Auto-derive sizes from TypeVariable.num_vars if not provided
+        if sizes is None:
+            inferred = [getattr(v, 'num_vars', None) for v in vars]
+            if all(s is not None for s in inferred):
+                sizes = inferred
+            elif len(vars) > 1:
+                raise ValueError(
+                    "sizes is required for multi-variable output when vars "
+                    "lack num_vars (use TypeVariable or pass sizes explicitly)."
+                )
+        else:
+            # Validate explicit sizes against num_vars when both available
+            inferred = [getattr(v, 'num_vars', None) for v in vars]
+            if all(s is not None for s in inferred) and list(sizes) != inferred:
+                raise ValueError(
+                    f"Explicit sizes {list(sizes)} do not match num_vars "
+                    f"inferred from vars {inferred}."
+                )
 
         # Initialize base class
         super().__init__(callable, param_keys, output_keys, name=name)
@@ -46,6 +61,15 @@ class RelaxationNode(Node):
                 )
 
     def forward(self, data):
+        """
+        Run the network and split output by variable sizes.
+
+        Args:
+            data: Dictionary with parameter tensors.
+
+        Returns:
+            Dictionary mapping relaxed variable keys to tensors.
+        """
         # Concatenate inputs if multiple keys
         inputs = [data[k] for k in self.input_keys]
         x = torch.cat(inputs, dim=-1) if len(inputs) > 1 else inputs[0]
@@ -58,7 +82,7 @@ class RelaxationNode(Node):
             result[self.output_keys[0]] = output
         # Multiple variables: split by sizes
         else:
-            # Check that output dimension
+            # Validate output dimension matches sizes
             if sum(self.sizes) != output.shape[-1]:
                 raise ValueError("Sum of sizes must equal output dimension.")
             # Split output by sizes and assign to corresponding keys

@@ -19,6 +19,13 @@ from reins.node.rounding.selection import (
     AdaptiveSelectionRounding,
     StochasticAdaptiveSelectionRounding,
 )
+from reins.node.rounding.functions import (
+    DiffFloor,
+    DiffBinarize,
+    DiffGumbelBinarize,
+    ThresholdBinarize,
+    GumbelThresholdBinarize,
+)
 
 
 @pytest.fixture(autouse=True)
@@ -84,6 +91,13 @@ def multi_vars():
 
 class TestRoundingNodeBase:
     """Test RoundingNode base class metadata extraction."""
+
+    def test_rejects_non_typevariable(self):
+        """Should raise TypeError for non-TypeVariable input."""
+        from reins.variable import Variable
+        v = Variable("x")
+        with pytest.raises(TypeError, match="Expected TypeVariable"):
+            STERounding(v)
 
     def test_single_var_normalized_to_list(self, int_var):
         """Single variable should be wrapped in a list."""
@@ -885,3 +899,518 @@ class TestRoundingNodeExport:
         var = _make_var("x", 3, integer_indices=[0, 1, 2])
         with pytest.raises(TypeError):
             RoundingNode(var)
+
+
+# ── TestNumericalDynamicThreshold ────────────────────────────────────
+
+class TestNumericalDynamicThreshold:
+    """Verify exact DynamicThresholdRounding outputs with fixed-weight networks."""
+
+    @staticmethod
+    def _fixed_net(out_features, bias_values):
+        """Create a Linear net with zero weight and fixed bias."""
+        # Total input = 4 (params) + out_features (vars)
+        net = nn.Linear(4 + out_features, out_features, bias=True)
+        nn.init.zeros_(net.weight)
+        net.bias.data = torch.tensor(bias_values, dtype=torch.float32)
+        return net
+
+    def test_integer_threshold_exact(self):
+        """Fixed bias=0 -> sigmoid(0)=0.5 threshold for integer rounding."""
+        var = _make_var("x", 2, integer_indices=[0, 1])
+        net = self._fixed_net(2, [0.0, 0.0])
+        layer = DynamicThresholdRounding(net, [p], [var], slope=10)
+        layer.eval()
+        # thresh = sigmoid(0) = 0.5
+        # x_rel=[1.3, 2.7], floor=[1.0, 2.0], frac=[0.3, 0.7]
+        # (0.3 >= 0.5)=0, (0.7 >= 0.5)=1
+        # result: [1.0+0, 2.0+1] = [1.0, 3.0]
+        data = {"x_rel": torch.tensor([[1.3, 2.7]]), "p": torch.randn(1, 4)}
+        result = layer(data)["x"]
+        expected = torch.tensor([[1.0, 3.0]])
+        assert torch.allclose(result, expected)
+
+    def test_binary_threshold_exact(self):
+        """Fixed bias=0 -> sigmoid(0)=0.5 threshold for binary rounding."""
+        var = _make_var("x", 2, binary_indices=[0, 1])
+        net = self._fixed_net(2, [0.0, 0.0])
+        layer = DynamicThresholdRounding(net, [p], [var], slope=10)
+        layer.eval()
+        # thresh = sigmoid(0) = 0.5
+        # (0.3 >= 0.5)=0, (0.7 >= 0.5)=1
+        data = {"x_rel": torch.tensor([[0.3, 0.7]]), "p": torch.randn(1, 4)}
+        result = layer(data)["x"]
+        expected = torch.tensor([[0.0, 1.0]])
+        assert torch.allclose(result, expected)
+
+    def test_high_bias_always_floor(self):
+        """Large positive bias -> sigmoid -> high threshold -> always floor."""
+        var = _make_var("x", 2, integer_indices=[0, 1])
+        net = self._fixed_net(2, [10.0, 10.0])
+        layer = DynamicThresholdRounding(net, [p], [var], slope=10)
+        layer.eval()
+        # thresh = sigmoid(10) ≈ 1.0 -> frac < 1.0 -> always 0
+        # result: floor only = [1.0, 2.0]
+        data = {"x_rel": torch.tensor([[1.9, 2.9]]), "p": torch.randn(1, 4)}
+        result = layer(data)["x"]
+        expected = torch.tensor([[1.0, 2.0]])
+        assert torch.allclose(result, expected)
+
+    def test_low_bias_always_ceil(self):
+        """Large negative bias -> sigmoid -> low threshold -> always ceil."""
+        var = _make_var("x", 2, integer_indices=[0, 1])
+        net = self._fixed_net(2, [-10.0, -10.0])
+        layer = DynamicThresholdRounding(net, [p], [var], slope=10)
+        layer.eval()
+        # thresh = sigmoid(-10) ≈ 0.0 -> any frac > 0 -> always 1
+        # result: floor + 1 = [2.0, 3.0]
+        data = {"x_rel": torch.tensor([[1.1, 2.1]]), "p": torch.randn(1, 4)}
+        result = layer(data)["x"]
+        expected = torch.tensor([[2.0, 3.0]])
+        assert torch.allclose(result, expected)
+
+    def test_continuous_update_exact(self):
+        """continuous_update=True: continuous vars get network adjustment added."""
+        # idx 0: continuous, idx 1: integer
+        var = _make_var("x", 2, integer_indices=[1])
+        net = self._fixed_net(2, [0.5, 0.0])
+        layer = DynamicThresholdRounding(net, [p], [var],
+                                         continuous_update=True, slope=10)
+        layer.eval()
+        # Network output = bias = [0.5, 0.0]
+        # Continuous idx 0: x + h = 1.0 + 0.5 = 1.5
+        # Integer idx 1: floor(2.7)=2, thresh=sigmoid(0)=0.5, frac=0.7>=0.5 -> 1
+        #   result: 2+1 = 3.0
+        data = {"x_rel": torch.tensor([[1.0, 2.7]]), "p": torch.randn(1, 4)}
+        result = layer(data)["x"]
+        expected = torch.tensor([[1.5, 3.0]])
+        assert torch.allclose(result, expected)
+
+    def test_stochastic_matches_deterministic_eval(self):
+        """StochasticDynamicThreshold eval should match DynamicThreshold eval."""
+        var = _make_var("x", 2, integer_indices=[0, 1])
+        net_d = self._fixed_net(2, [0.0, 0.0])
+        net_s = self._fixed_net(2, [0.0, 0.0])
+        det = DynamicThresholdRounding(net_d, [p], [var], slope=10)
+        sto = StochasticDynamicThresholdRounding(net_s, [p], [var])
+        det.eval()
+        sto.eval()
+        data_d = {"x_rel": torch.tensor([[1.3, 2.7]]), "p": torch.zeros(1, 4)}
+        data_s = {"x_rel": torch.tensor([[1.3, 2.7]]), "p": torch.zeros(1, 4)}
+        # Both use (frac >= threshold) in eval -> same result
+        assert torch.allclose(det(data_d)["x"], sto(data_s)["x"])
+
+
+# ── TestNumericalAdaptiveSelection ───────────────────────────────────
+
+class TestNumericalAdaptiveSelection:
+    """Verify exact AdaptiveSelectionRounding outputs with fixed-weight networks."""
+
+    @staticmethod
+    def _fixed_net(out_features, bias_values):
+        """Create a Linear net with zero weight and fixed bias."""
+        net = nn.Linear(4 + out_features, out_features, bias=True)
+        nn.init.zeros_(net.weight)
+        net.bias.data = torch.tensor(bias_values, dtype=torch.float32)
+        return net
+
+    def test_integer_selection_exact(self):
+        """Positive bias -> binarize(h)=1 -> ceil; negative -> floor."""
+        var = _make_var("x", 2, integer_indices=[0, 1])
+        net = self._fixed_net(2, [1.0, -1.0])
+        layer = AdaptiveSelectionRounding(net, [p], [var])
+        layer.eval()
+        # DiffBinarize([1.0, -1.0]) = [1.0, 0.0]
+        # x_rel=[1.3, 2.7], floor=[1.0, 2.0]
+        # frac=[0.3, 0.7], both far from 0 and 1 -> mask doesn't trigger
+        # result: [1.0+1, 2.0+0] = [2.0, 2.0]
+        data = {"x_rel": torch.tensor([[1.3, 2.7]]), "p": torch.randn(1, 4)}
+        result = layer(data)["x"]
+        expected = torch.tensor([[2.0, 2.0]])
+        assert torch.allclose(result, expected)
+
+    def test_binary_selection_exact(self):
+        """Positive bias -> binarize(h)=1; negative -> 0."""
+        var = _make_var("x", 2, binary_indices=[0, 1])
+        net = self._fixed_net(2, [1.0, -1.0])
+        layer = AdaptiveSelectionRounding(net, [p], [var])
+        layer.eval()
+        # DiffBinarize([1.0, -1.0]) = [1.0, 0.0]
+        data = {"x_rel": torch.tensor([[0.3, 0.7]]), "p": torch.randn(1, 4)}
+        result = layer(data)["x"]
+        expected = torch.tensor([[1.0, 0.0]])
+        assert torch.allclose(result, expected)
+
+    def test_int_mask_overrides_network(self):
+        """Near-integer values should override network decision via int_mask."""
+        var = _make_var("x", 2, integer_indices=[0, 1])
+        # Network says ceil (positive bias), but near-integer forces floor/ceil
+        net = self._fixed_net(2, [1.0, 1.0])
+        layer = AdaptiveSelectionRounding(net, [p], [var], tolerance=1e-2)
+        layer.eval()
+        # x_rel=[2.001, 2.999]
+        # floor=[2.0, 2.0], frac=[0.001, 0.999]
+        # frac < tolerance -> force 0 (floor): x[0] = 2.0
+        # frac > 1-tolerance -> force 1 (ceil): x[1] = 3.0
+        data = {"x_rel": torch.tensor([[2.001, 2.999]]), "p": torch.randn(1, 4)}
+        result = layer(data)["x"]
+        expected = torch.tensor([[2.0, 3.0]])
+        assert torch.allclose(result, expected)
+
+    def test_continuous_update_exact(self):
+        """continuous_update=True: continuous vars get network adjustment added."""
+        # idx 0: continuous, idx 1: integer
+        var = _make_var("x", 2, integer_indices=[1])
+        net = self._fixed_net(2, [0.3, 1.0])
+        layer = AdaptiveSelectionRounding(net, [p], [var],
+                                          continuous_update=True)
+        layer.eval()
+        # Network output = bias = [0.3, 1.0]
+        # Continuous idx 0: x + h = 2.0 + 0.3 = 2.3
+        # Integer idx 1: floor(1.3)=1, binarize(h=1.0)=1 -> 1+1=2.0
+        data = {"x_rel": torch.tensor([[2.0, 1.3]]), "p": torch.randn(1, 4)}
+        result = layer(data)["x"]
+        expected = torch.tensor([[2.3, 2.0]])
+        assert torch.allclose(result, expected)
+
+    def test_stochastic_differs_at_h_zero(self):
+        """At h=0, AdaptiveSelection rounds UP but Stochastic rounds DOWN."""
+        var = _make_var("x", 1, integer_indices=[0])
+        net_d = self._fixed_net(1, [0.0])
+        net_s = self._fixed_net(1, [0.0])
+        det = AdaptiveSelectionRounding(net_d, [p], [var])
+        sto = StochasticAdaptiveSelectionRounding(net_s, [p], [var])
+        det.eval()
+        sto.eval()
+        data_d = {"x_rel": torch.tensor([[1.3]]), "p": torch.zeros(1, 4)}
+        data_s = {"x_rel": torch.tensor([[1.3]]), "p": torch.zeros(1, 4)}
+        # Det: DiffBinarize(0) = (0>=0)=1 -> floor(1.3)+1 = 2.0
+        assert det(data_d)["x"].item() == 2.0
+        # Sto: DiffGumbelBinarize.eval(0) = (sigmoid(0)>0.5)=False -> 0
+        #   -> floor(1.3)+0 = 1.0
+        assert sto(data_s)["x"].item() == 1.0
+
+
+# ── TestNumericalTemperatureEffect ───────────────────────────────────
+
+class TestNumericalTemperatureEffect:
+    """Verify temperature parameter affects rounding boundaries."""
+
+    def test_gumbel_binarize_temperature_threshold(self):
+        """Low temp narrows the boundary; high temp widens it."""
+        cold = DiffGumbelBinarize(temperature=0.1)
+        hot = DiffGumbelBinarize(temperature=10.0)
+        cold.eval()
+        hot.eval()
+        # x = 0.01 (very slightly positive)
+        x = torch.tensor([0.01])
+        # Cold: sigmoid(0.01/0.1) = sigmoid(0.1) ≈ 0.525 > 0.5 -> 1.0
+        assert cold(x).item() == 1.0
+        # Hot: sigmoid(0.01/10) = sigmoid(0.001) ≈ 0.50025 > 0.5 -> 1.0
+        # (still 1.0 because any positive x gives sigmoid > 0.5)
+        assert hot(x).item() == 1.0
+        # x = -0.01 (very slightly negative)
+        x_neg = torch.tensor([-0.01])
+        # Both should give 0.0 for negative input
+        assert cold(x_neg).item() == 0.0
+        assert hot(x_neg).item() == 0.0
+
+    def test_stochastic_ste_temperature_exact(self):
+        """Temperature changes rounding boundary for fractional values."""
+        var = _make_var("x", 1, integer_indices=[0])
+        # With temp=0.1, sigmoid(x/0.1): boundary is still at frac=0.5
+        # With temp=10, sigmoid(x/10): boundary is still at frac=0.5
+        # But at frac=0.4999, (frac-0.5)=-0.0001:
+        cold = StochasticSTERounding(var, temperature=0.1)
+        hot = StochasticSTERounding(var, temperature=10.0)
+        cold.eval()
+        hot.eval()
+        # frac-0.5 = -0.0001
+        # Cold: sigmoid(-0.0001/0.1) = sigmoid(-0.001) < 0.5 -> 0 -> floor
+        # Hot: sigmoid(-0.0001/10) = sigmoid(-0.00001) < 0.5 -> 0 -> floor
+        data_c = {"x_rel": torch.tensor([[1.4999]])}
+        data_h = {"x_rel": torch.tensor([[1.4999]])}
+        assert cold(data_c)["x"].item() == 1.0
+        assert hot(data_h)["x"].item() == 1.0
+
+
+# ── TestNumericalFunctions ───────────────────────────────────────────
+
+class TestNumericalFunctions:
+    """Verify exact numerical outputs of differentiable rounding functions."""
+
+    def test_diff_floor_values(self):
+        """DiffFloor should produce exact floor values."""
+        f = DiffFloor()
+        x = torch.tensor([1.3, 2.7, -0.5, 0.0, 3.0, -2.1])
+        result = f(x)
+        expected = torch.tensor([1.0, 2.0, -1.0, 0.0, 3.0, -3.0])
+        assert torch.allclose(result, expected)
+
+    def test_diff_floor_gradient(self):
+        """DiffFloor gradient should be identity (STE)."""
+        f = DiffFloor()
+        x = torch.tensor([1.3, 2.7], requires_grad=True)
+        result = f(x)
+        result.sum().backward()
+        assert torch.allclose(x.grad, torch.ones(2))
+
+    def test_diff_binarize_values(self):
+        """DiffBinarize: x >= 0 -> 1, x < 0 -> 0, clamped to [-1, 1]."""
+        b = DiffBinarize()
+        x = torch.tensor([0.3, -0.2, 0.0, 1.5, -1.5])
+        result = b(x)
+        expected = torch.tensor([1.0, 0.0, 1.0, 1.0, 0.0])
+        assert torch.allclose(result, expected)
+
+    def test_diff_binarize_gradient(self):
+        """DiffBinarize gradient should pass through clamped identity."""
+        b = DiffBinarize()
+        x = torch.tensor([0.3, -0.2, 0.5], requires_grad=True)
+        result = b(x)
+        result.sum().backward()
+        # Gradient is 1 within [-1, 1] clamp range
+        assert torch.allclose(x.grad, torch.ones(3))
+
+    def test_diff_binarize_gradient_clamp(self):
+        """DiffBinarize gradient should be 0 outside [-1, 1]."""
+        b = DiffBinarize()
+        x = torch.tensor([2.0, -2.0], requires_grad=True)
+        result = b(x)
+        result.sum().backward()
+        assert torch.allclose(x.grad, torch.zeros(2))
+
+    def test_threshold_binarize_values(self):
+        """ThresholdBinarize: x >= threshold -> 1, else 0."""
+        tb = ThresholdBinarize(slope=10)
+        x = torch.tensor([0.7, 0.3, 0.5, 0.9, 0.1])
+        thresh = torch.tensor([0.5, 0.5, 0.5, 0.5, 0.5])
+        tb.eval()
+        result = tb(x, thresh)
+        expected = torch.tensor([1.0, 0.0, 1.0, 1.0, 0.0])
+        assert torch.allclose(result, expected)
+
+    def test_threshold_binarize_varying_thresholds(self):
+        """ThresholdBinarize with different thresholds per element."""
+        tb = ThresholdBinarize(slope=10)
+        x = torch.tensor([0.4, 0.4, 0.4])
+        thresh = torch.tensor([0.3, 0.5, 0.4])
+        result = tb(x, thresh)
+        # 0.4 >= 0.3 -> 1, 0.4 < 0.5 -> 0, 0.4 >= 0.4 -> 1
+        expected = torch.tensor([1.0, 0.0, 1.0])
+        assert torch.allclose(result, expected)
+
+    def test_gumbel_threshold_binarize_eval(self):
+        """GumbelThresholdBinarize eval: deterministic (x - threshold >= 0)."""
+        gtb = GumbelThresholdBinarize(temperature=1.0)
+        gtb.eval()
+        x = torch.tensor([0.7, 0.3, 0.5])
+        thresh = torch.tensor([0.5, 0.5, 0.5])
+        result = gtb(x, thresh)
+        expected = torch.tensor([1.0, 0.0, 1.0])
+        assert torch.allclose(result, expected)
+
+    def test_diff_gumbel_binarize_eval(self):
+        """DiffGumbelBinarize eval: sigmoid(x/temp) > 0.5."""
+        dgb = DiffGumbelBinarize(temperature=1.0)
+        dgb.eval()
+        # x > 0 -> sigmoid(x) > 0.5 -> 1.0
+        # x < 0 -> sigmoid(x) < 0.5 -> 0.0
+        x = torch.tensor([1.0, -1.0, 0.5, -0.5])
+        result = dgb(x)
+        expected = torch.tensor([1.0, 0.0, 1.0, 0.0])
+        assert torch.allclose(result, expected)
+
+    def test_diff_gumbel_binarize_boundary_zero(self):
+        """DiffGumbelBinarize eval at x=0: sigmoid(0)=0.5, NOT > 0.5 -> 0."""
+        dgb = DiffGumbelBinarize(temperature=1.0)
+        dgb.eval()
+        x = torch.tensor([0.0])
+        result = dgb(x)
+        # sigmoid(0) = 0.5, 0.5 > 0.5 is False -> 0.0
+        assert result.item() == 0.0
+
+    def test_diff_binarize_vs_gumbel_at_zero(self):
+        """DiffBinarize and DiffGumbelBinarize differ at x=0."""
+        b = DiffBinarize()
+        g = DiffGumbelBinarize(temperature=1.0)
+        g.eval()
+        x = torch.tensor([0.0])
+        # DiffBinarize: 0.0 >= 0 -> 1.0
+        assert b(x).item() == 1.0
+        # DiffGumbelBinarize: sigmoid(0) = 0.5, NOT > 0.5 -> 0.0
+        assert g(x).item() == 0.0
+
+
+# ── TestNumericalSTERounding ─────────────────────────────────────────
+
+class TestNumericalSTERounding:
+    """Verify exact numerical outputs of STERounding."""
+
+    def test_integer_exact_values(self):
+        """Verify exact floor+binarize computation for integer rounding."""
+        var = _make_var("x", 3, integer_indices=[0, 1, 2])
+        layer = STERounding(var)
+        layer.eval()
+        # x_rel = [1.3, 2.7, 0.1]
+        # floor:  [1.0, 2.0, 0.0]
+        # frac:   [0.3, 0.7, 0.1]
+        # frac-0.5: [-0.2, 0.2, -0.4]
+        # binarize: [0.0, 1.0, 0.0]  (>= 0 -> 1)
+        # result: [1.0, 3.0, 0.0]
+        data = {"x_rel": torch.tensor([[1.3, 2.7, 0.1]])}
+        result = layer(data)["x"]
+        expected = torch.tensor([[1.0, 3.0, 0.0]])
+        assert torch.allclose(result, expected)
+
+    def test_binary_exact_values(self):
+        """Verify exact binarize(x - 0.5) computation for binary rounding."""
+        var = _make_var("x", 4, binary_indices=[0, 1, 2, 3])
+        layer = STERounding(var)
+        layer.eval()
+        # x_rel = [0.3, 0.7, 0.5, 0.0]
+        # x - 0.5: [-0.2, 0.2, 0.0, -0.5]
+        # binarize: [0.0, 1.0, 1.0, 0.0]
+        data = {"x_rel": torch.tensor([[0.3, 0.7, 0.5, 0.0]])}
+        result = layer(data)["x"]
+        expected = torch.tensor([[0.0, 1.0, 1.0, 0.0]])
+        assert torch.allclose(result, expected)
+
+    def test_mixed_exact_values(self):
+        """Verify mixed-type rounding: continuous unchanged, integer/binary rounded."""
+        # idx 0: continuous, idx 1-2: integer, idx 3: binary
+        var = _make_var("x", 4, integer_indices=[1, 2], binary_indices=[3])
+        layer = STERounding(var)
+        layer.eval()
+        # x_rel = [0.55, 1.3, 2.7, 0.6]
+        # continuous[0]: 0.55 (unchanged)
+        # integer[1]: floor(1.3)=1 + binarize(0.3-0.5=-0.2)=0 -> 1.0
+        # integer[2]: floor(2.7)=2 + binarize(0.7-0.5=0.2)=1 -> 3.0
+        # binary[3]: binarize(0.6-0.5=0.1)=1 -> 1.0
+        data = {"x_rel": torch.tensor([[0.55, 1.3, 2.7, 0.6]])}
+        result = layer(data)["x"]
+        expected = torch.tensor([[0.55, 1.0, 3.0, 1.0]])
+        assert torch.allclose(result, expected)
+
+    def test_negative_integer_exact_values(self):
+        """Verify rounding for negative values."""
+        var = _make_var("x", 3, integer_indices=[0, 1, 2])
+        layer = STERounding(var)
+        layer.eval()
+        # x_rel = [-0.3, -1.7, -2.5]
+        # floor:  [-1.0, -2.0, -3.0]
+        # frac:   [0.7,  0.3,  0.5]
+        # frac-0.5: [0.2, -0.2, 0.0]
+        # binarize: [1.0, 0.0, 1.0]
+        # result: [0.0, -2.0, -2.0]
+        data = {"x_rel": torch.tensor([[-0.3, -1.7, -2.5]])}
+        result = layer(data)["x"]
+        expected = torch.tensor([[0.0, -2.0, -2.0]])
+        assert torch.allclose(result, expected)
+
+    def test_already_integer_values(self):
+        """Values that are already integers should remain unchanged."""
+        var = _make_var("x", 3, integer_indices=[0, 1, 2])
+        layer = STERounding(var)
+        layer.eval()
+        data = {"x_rel": torch.tensor([[1.0, 2.0, -3.0]])}
+        result = layer(data)["x"]
+        expected = torch.tensor([[1.0, 2.0, -3.0]])
+        assert torch.allclose(result, expected)
+
+    def test_batch_numerical_consistency(self):
+        """Each sample in a batch should round independently with correct values."""
+        var = _make_var("x", 2, integer_indices=[0, 1])
+        layer = STERounding(var)
+        layer.eval()
+        data = {"x_rel": torch.tensor([[1.3, 2.7],
+                                        [0.8, 0.2]])}
+        result = layer(data)["x"]
+        # Sample 1: [1.3, 2.7] -> [1.0, 3.0]
+        # Sample 2: [0.8, 0.2] -> [1.0, 0.0]
+        expected = torch.tensor([[1.0, 3.0],
+                                  [1.0, 0.0]])
+        assert torch.allclose(result, expected)
+
+    def test_multi_var_exact_values(self):
+        """Verify exact values with two TypeVariables rounded independently."""
+        x = _make_var("x", 3, integer_indices=[0, 1, 2])
+        y = _make_var("y", 2, binary_indices=[0, 1])
+        layer = STERounding([x, y])
+        layer.eval()
+        data = {
+            "x_rel": torch.tensor([[1.3, 2.7, 0.1]]),
+            "y_rel": torch.tensor([[0.8, 0.2]]),
+        }
+        result = layer(data)
+        # x: integer [1.3, 2.7, 0.1] -> [1.0, 3.0, 0.0]
+        assert torch.allclose(result["x"], torch.tensor([[1.0, 3.0, 0.0]]))
+        # y: binary [0.8, 0.2] -> binarize([0.3, -0.3]) -> [1.0, 0.0]
+        assert torch.allclose(result["y"], torch.tensor([[1.0, 0.0]]))
+
+
+# ── TestNumericalStochasticSTERounding ───────────────────────────────
+
+class TestNumericalStochasticSTERounding:
+    """Verify StochasticSTERounding eval-mode numerical outputs."""
+
+    def test_eval_integer_exact_values(self):
+        """Eval mode integer rounding via DiffGumbelBinarize."""
+        var = _make_var("x", 3, integer_indices=[0, 1, 2])
+        layer = StochasticSTERounding(var, temperature=1.0)
+        layer.eval()
+        # x_rel = [1.3, 2.7, 0.1]
+        # floor:  [1.0, 2.0, 0.0]
+        # frac - 0.5: [-0.2, 0.2, -0.4]
+        # DiffGumbelBinarize eval: (sigmoid(x) > 0.5).float()
+        # sigmoid(-0.2) < 0.5 -> 0, sigmoid(0.2) > 0.5 -> 1, sigmoid(-0.4) < 0.5 -> 0
+        # result: [1.0, 3.0, 0.0]
+        data = {"x_rel": torch.tensor([[1.3, 2.7, 0.1]])}
+        result = layer(data)["x"]
+        expected = torch.tensor([[1.0, 3.0, 0.0]])
+        assert torch.allclose(result, expected)
+
+    def test_eval_binary_exact_values(self):
+        """Eval mode binary rounding via DiffGumbelBinarize."""
+        var = _make_var("x", 3, binary_indices=[0, 1, 2])
+        layer = StochasticSTERounding(var, temperature=1.0)
+        layer.eval()
+        # x - 0.5: [0.3, -0.3, 0.0]
+        # sigmoid(0.3) > 0.5 -> 1, sigmoid(-0.3) < 0.5 -> 0
+        # sigmoid(0.0) = 0.5, NOT > 0.5 -> 0
+        data = {"x_rel": torch.tensor([[0.8, 0.2, 0.5]])}
+        result = layer(data)["x"]
+        expected = torch.tensor([[1.0, 0.0, 0.0]])
+        assert torch.allclose(result, expected)
+
+    def test_eval_differs_from_ste_at_boundary(self):
+        """At frac=0.5, STERounding rounds UP but StochasticSTERounding rounds DOWN."""
+        var = _make_var("x", 1, integer_indices=[0])
+        ste = STERounding(var)
+        stochastic = StochasticSTERounding(var, temperature=1.0)
+        ste.eval()
+        stochastic.eval()
+        # frac = 0.5, frac - 0.5 = 0.0
+        data_ste = {"x_rel": torch.tensor([[1.5]])}
+        data_sto = {"x_rel": torch.tensor([[1.5]])}
+        ste_result = ste(data_ste)["x"]
+        sto_result = stochastic(data_sto)["x"]
+        # STE: DiffBinarize(0.0) = (0.0 >= 0) = 1.0 -> floor(1.5)+1 = 2.0
+        assert ste_result.item() == 2.0
+        # Stochastic: DiffGumbelBinarize.eval(0.0) = (sigmoid(0)>0.5) = False -> 0.0
+        # -> floor(1.5)+0 = 1.0
+        assert sto_result.item() == 1.0
+
+    def test_eval_matches_ste_away_from_boundary(self):
+        """Away from frac=0.5, both should agree."""
+        var = _make_var("x", 3, integer_indices=[0, 1, 2])
+        ste = STERounding(var)
+        stochastic = StochasticSTERounding(var, temperature=1.0)
+        ste.eval()
+        stochastic.eval()
+        # frac values [0.3, 0.7, 0.1] are away from 0.5
+        data_ste = {"x_rel": torch.tensor([[1.3, 2.7, 0.1]])}
+        data_sto = {"x_rel": torch.tensor([[1.3, 2.7, 0.1]])}
+        ste_result = ste(data_ste)["x"]
+        sto_result = stochastic(data_sto)["x"]
+        assert torch.allclose(ste_result, sto_result)

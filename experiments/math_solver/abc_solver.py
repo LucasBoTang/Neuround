@@ -3,7 +3,6 @@ Parametric Mixed Integer Nonlinear Programming with SCIP
 """
 
 from abc import ABC, abstractmethod
-from collections.abc import Iterable
 import copy
 from pathlib import Path
 
@@ -35,9 +34,7 @@ class abcParamSolver(ABC):
 
     @property
     def int_ind(self):
-        """
-        Identify indices of integer variables
-        """
+        """Indices of integer variables per variable group."""
         int_ind = {}
         for key, var_comp in self.vars.items():
             int_ind[key] = [i for i, v in var_comp.items() if v.domain is pe.Integers]
@@ -45,18 +42,14 @@ class abcParamSolver(ABC):
 
     @property
     def bin_ind(self):
-        """
-        Identify indices of binary variables
-        """
+        """Indices of binary variables per variable group."""
         bin_ind = {}
         for key, var_comp in self.vars.items():
             bin_ind[key] = [i for i, v in var_comp.items() if v.domain is pe.Binary]
         return bin_ind
 
     def solve(self, tee=False, keepfiles=False, logfile=None):
-        """
-        Solve the model and return variable values and the objective value
-        """
+        """Solve the model and return variable values and objective value."""
         # Check logfile directory
         if logfile:
             Path(logfile).parent.mkdir(parents=True, exist_ok=True)
@@ -79,15 +72,13 @@ class abcParamSolver(ABC):
         return xval, objval
 
     def set_param_val(self, param_dict):
-        """
-        Set values for mutable parameters in the model
-        """
+        """Set values for mutable parameters."""
         # Iterate through parameter categories
         for key, val in param_dict.items():
             param = self.params[key]
             if isinstance(val, (np.ndarray, list)) and param.is_indexed():
                 # Pyomo bulk update for indexed params
-                param.store_values({i: v for i, v in enumerate(val)})
+                param.store_values(dict(enumerate(val)))
             # Set single value (scalar param)
             else:
                 param.set_value(val)
@@ -95,25 +86,21 @@ class abcParamSolver(ABC):
         self._has_warm_start = False
 
     def get_val(self):
-        """
-        Retrieve the values of decision variables and the objective value
-        """
+        """Retrieve decision variable values and objective value."""
         # Get variable values as dict
         solvals = {}
         try:
             for key, var_comp in self.vars.items():
-                solvals[key] = {i: var_comp[i].value for i in var_comp}
+                solvals[key] = {i: float(var_comp[i].value) for i in var_comp}
             # Get the objective value
-            objval = pe.value(self.model.obj)
+            objval = float(pe.value(self.model.obj))
         except (ValueError, AttributeError, TypeError):
             # No value or invalid state
             solvals, objval = None, None
         return solvals, objval
 
     def set_warm_start(self, init_sol):
-        """
-        Set an initial solution for warm starting
-        """
+        """Set an initial solution for warm starting."""
         for key, vals in init_sol.items():
             if key not in self.vars:
                 raise KeyError(f"Variable group '{key}' not found in self.vars")
@@ -128,38 +115,36 @@ class abcParamSolver(ABC):
         self._has_warm_start = True
 
     def check_violation(self):
-        """
-        Check for any constraint violations in the model
-        """
+        """Check for any constraint violations."""
         return any(self._constraint_violation(constr) != 0 for constr in self.model.cons.values())
 
     def cal_violation(self):
-        """
-        Calculate the magnitude of violations for each constraint
-        """
+        """Calculate violation magnitude for each constraint."""
         return np.array([self._constraint_violation(constr) for constr in self.model.cons.values()])
 
     def _constraint_violation(self, constr):
-        """
-        Helper method to compute the violation of a single constraint
-        """
-        lhs = pe.value(constr.body)
+        """Compute the violation of a single constraint."""
+        lhs = float(pe.value(constr.body))
         # Check if LHS is below the lower bound
-        if constr.lower is not None and lhs < pe.value(constr.lower) - 1e-5:
-            return float(pe.value(constr.lower)) - lhs
+        if constr.lower is not None:
+            lb = float(pe.value(constr.lower))
+            if lhs < lb - 1e-5:
+                return lb - lhs
         # Check if LHS is above the upper bound
-        elif constr.upper is not None and lhs > pe.value(constr.upper) + 1e-5:
-            return lhs - float(pe.value(constr.upper))
+        if constr.upper is not None:
+            ub = float(pe.value(constr.upper))
+            if lhs > ub + 1e-5:
+                return lhs - ub
         return 0.0
 
     def clone(self):
-        """
-        Create and return a deep copy of the model
-        """
-        # Deep copy the solver
-        model_new = copy.deepcopy(self)
+        """Return a deep copy of the solver."""
+        # Shallow copy the solver
+        model_new = copy.copy(self)
         # Clone Pyomo model
-        model_new.model = model_new.model.clone()
+        model_new.model = self.model.clone()
+        # Deep copy solver instance for independent options
+        model_new.opt = copy.deepcopy(self.opt)
         # Rebind variables
         model_new.vars = {var: getattr(model_new.model, var) for var in self.vars}
         # Rebind constraints
@@ -169,9 +154,7 @@ class abcParamSolver(ABC):
         return model_new
 
     def relax(self):
-        """
-        Relax binary & integer variables to continuous variables and return the relaxed model
-        """
+        """Return a copy with integer/binary variables relaxed to continuous."""
         # Clone model
         model_rel = self.clone()
         # Relax integer variables to continuous
@@ -187,9 +170,7 @@ class abcParamSolver(ABC):
         return model_rel
 
     def penalty(self, weight):
-        """
-        Create a penalty model from an original model to handle constraints as soft constraints
-        """
+        """Return a copy with constraints converted to soft penalties."""
         # Clone model
         model_pen = self.clone()
         model = model_pen.model
@@ -218,9 +199,7 @@ class abcParamSolver(ABC):
         return model_pen
 
     def first_solution_heuristic(self, nodes_limit=1):
-        """
-        Create a model that terminates after finding the first feasible solution
-        """
+        """Return a copy that stops after finding the first feasible solution."""
         # Clone model
         model_heur = self.clone()
         # Set solution limit
@@ -233,45 +212,52 @@ class abcParamSolver(ABC):
         return model_heur
 
     def primal_heuristic(self, heuristic_name="rens"):
-        """
-        Create a model for primal heuristic
-        """
+        """Return a copy configured to run a single primal heuristic."""
         # Clone model
         model_heur = self.clone()
         if self.solver == "scip":
-            # Set solution limit
+            # Only process root node
             model_heur.opt.options["limits/nodes"] = 1
-            # Disable presolve
+            # Disable presolve and separation
             model_heur.opt.options["presolving/maxrounds"] = 0
-            # Disable separation
             model_heur.opt.options["separating/maxrounds"] = 0
-            # Emphasize heuristic usage
-            model_heur.opt.options["heuristics/emphasis"] = 3
-            # Disable other heuristics
-            all_heuristics = [# rounding
+            # All SCIP primal heuristics
+            all_heuristics = [# Rounding
                               "rounding", "simplerounding", "randrounding", "zirounding",
-                              # shifting
-                              "shifting", "intshifting", "shiftandpropagate",
-                              # flip
+                              # Shifting
+                              "shifting", "intshifting",
+                              # Flip
                               "oneopt", "twoopt",
-                              # indicator
+                              # Indicator
                               "indicator",
-                              # diving
-                              "indicatordiving", "farkasdiving", "conflictdiving",
-                              "nlpdiving", "guideddiving", "adaptivediving",
-                              "coefdiving", "pscostdiving", "objpscostdiving",
-                              "fracdiving", "veclendiving", "distributiondiving",
-                              "rootsoldiving", "linesearchdiving",
-                              # search
-                              "alns", "localbranching", "rins", "rens", "gins", "dins", "lpface",
-                              # subsolve
-                              "feaspump", "subnlp"]
+                              # Diving
+                              "actconsdiving", "indicatordiving", "farkasdiving",
+                              "conflictdiving", "nlpdiving", "guideddiving",
+                              "adaptivediving", "coefdiving", "pscostdiving",
+                              "objpscostdiving", "fracdiving", "veclendiving",
+                              "distributiondiving", "rootsoldiving",
+                              "linesearchdiving", "intdiving",
+                              # LNS
+                              "alns", "localbranching", "rins", "rens", "gins",
+                              "dins", "lpface", "clique", "crossover",
+                              "mutation", "trustregion", "vbounds",
+                              # Subsolve
+                              "feaspump", "subnlp",
+                              # Repair
+                              "bound", "completesol", "fixandinfer", "repair",
+                              # Other
+                              "locks", "mpec", "multistart", "octane", "ofins",
+                              "padm", "proximity", "trivial", "trivialnegation",
+                              "trysol", "undercover", "zeroobj", "reoptsols"]
             if heuristic_name not in all_heuristics:
                 raise ValueError(f"Unknown heuristic '{heuristic_name}'. Choose from {all_heuristics}.")
+            # Disable all heuristics, then enable only the target one
             for heur in all_heuristics:
                 model_heur.opt.options[f"heuristics/{heur}/freq"] = -1
-            model_heur.opt.options[f"heuristics/{heuristic_name}/freq"] = 1
+            # freq=0 + freqofs=0: execute only at root node (depth 0)
+            model_heur.opt.options[f"heuristics/{heuristic_name}/freq"] = 0
+            model_heur.opt.options[f"heuristics/{heuristic_name}/freqofs"] = 0
             model_heur.opt.options[f"heuristics/{heuristic_name}/priority"] = 536870911
         else:
-            raise ValueError("Solver '{}' does not support setting a solution limit.".format(self.solver))
+            raise ValueError("Solver '{}' does not support configuring primal heuristics.".format(self.solver))
         return model_heur

@@ -44,7 +44,7 @@ class RoundingNode(Node, ABC):
 
         # Variable metadata for rounding logic
         self.vars = vars
-        # Total variable count across all variables (for MLP output sizing)
+        # Total variable count
         self.num_vars = sum(v.num_vars for v in vars)
 
     @abstractmethod
@@ -56,8 +56,7 @@ class RoundingNode(Node, ABC):
             data: Dictionary containing variable tensors.
 
         Returns:
-            Dictionary with only rounded output variables
-            (e.g., {"x": rounded_x, "y": rounded_y}).
+            Dictionary with rounded output variables.
         """
         pass
 
@@ -66,12 +65,10 @@ class LearnableRoundingLayer(RoundingNode, ABC):
     """
     Base class for network-based rounding layers.
 
-    Subclasses implement _round_integer() and _round_binary().
-
     Args:
         callable: Network mapping [params, vars] to per-variable outputs.
         params: Parameter Variable or list of parameter Variables.
-        vars: TypeVariable or list of TypeVariables with type metadata.
+        vars: TypeVariable or list of TypeVariables.
         continuous_update: Whether to update continuous variables (default: False).
         name: Module name.
     """
@@ -132,27 +129,10 @@ class LearnableRoundingLayer(RoundingNode, ABC):
 
     @abstractmethod
     def _round_integer(self, x_int, x_floor, h_int):
-        """Compute binary rounding decision for integer variables.
-
-        Args:
-            x_int: Relaxed integer variable values.
-            x_floor: Differentiable floor of x_int.
-            h_int: Network output slice for integer indices.
-
-        Returns:
-            Binary tensor (0 or 1) to add to x_floor.
-        """
+        """Return binary rounding decision (0 or 1) for integer variables."""
         pass
 
     @abstractmethod
     def _round_binary(self, x_bin, h_bin):
-        """Round binary variables.
-
-        Args:
-            x_bin: Relaxed binary variable values.
-            h_bin: Network output slice for binary indices.
-
-        Returns:
-            Rounded binary tensor (0 or 1).
-        """
+        """Return rounded binary values (0 or 1)."""
         pass

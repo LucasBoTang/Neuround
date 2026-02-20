@@ -85,6 +85,9 @@ import torch
 import numpy as np
 from reins import PenaltyLoss
 
+num_var = 5
+num_ineq = 5
+
 # Fixed problem coefficients
 rng = np.random.RandomState(17)
 Q = torch.from_numpy(0.01 * np.diag(rng.random(size=num_var))).float()
@@ -111,9 +114,6 @@ The relaxation network learns the mapping $b \mapsto x_{\text{rel}}$. Wrap any P
 from reins import MLPBnDrop
 from reins.node import RelaxationNode
 
-num_var = 5
-num_ineq = 5
-
 rel_net = MLPBnDrop(
     insize=num_ineq,
     outsize=num_var,
@@ -122,7 +122,7 @@ rel_net = MLPBnDrop(
     bnorm=True,       # batch normalization
 )
 
-# data["b"] -> rel_net -> data["x_rel"]
+# b -> rel_net -> x_rel
 rel = RelaxationNode(rel_net, [b], [x])
 ```
 
@@ -143,10 +143,10 @@ rnd_net = MLPBnDrop(
     hsizes=[64] * 3,
 )
 
-# Adaptive Selection (AS)
+# Adaptive Selection (AS): (b, x_rel) -> rnd_net -> x
 rounding = StochasticAdaptiveSelectionRounding(rnd_net, [b], [x], continuous_update=True)
 
-# Dynamic Thresholding (DT)
+# Dynamic Thresholding (DT): (b, x_rel) -> rnd_net -> x
 rounding = DynamicThresholdRounding(rnd_net, [b], [x])
 ```
 
@@ -195,7 +195,7 @@ solver.train(
     optimizer,
     epochs=200,      # max epochs
     patience=20,     # early stopping patience
-    warmup=20,       # warmup epochs before early stopping kicks in
+    warmup=20,       # warmup epochs before early stopping
     device="cuda",
 )
 ```
@@ -218,6 +218,7 @@ src/reins/                    # Core package
 ├── __init__.py                  # Public API
 ├── variable.py                  # VarType enum & TypeVariable class
 ├── blocks.py                    # MLPBnDrop (MLP with BatchNorm + Dropout)
+├── loss.py                      # PenaltyLoss (sum-reduced penalty loss)
 ├── solver.py                    # LearnableSolver wrapper
 ├── node/                        # Node components
 │   ├── relaxation.py            # RelaxationNode (relaxation solution)
@@ -225,11 +226,10 @@ src/reins/                    # Core package
 │       ├── functions.py         # Differentiable STE primitives
 │       ├── base.py              # RoundingNode abstract base class
 │       ├── ste.py               # STERounding, StochasticSTERounding
-│       ├── threshold.py         # DynamicThresholdRounding, StochasticDynamicThresholdRounding
-│       └── selection.py         # AdaptiveSelectionRounding, StochasticAdaptiveSelectionRounding
+│       ├── selection.py         # AdaptiveSelectionRounding, StochasticAdaptiveSelectionRounding
+│       └── threshold.py         # DynamicThresholdRounding, StochasticDynamicThresholdRounding
 ├── projection/                  # Feasibility projection
 │   └── gradient.py              # GradientProjection
-└── utils/
 experiments/                     # Benchmark experiments (not part of the package)
 ├── quadratic.py                 # Integer Quadratic Programming (IQP)
 ├── nonconvex.py                 # Integer Non-Convex Programming (INP)
@@ -297,4 +297,4 @@ Arguments: `--size` (problem size), `--penalty` (constraint violation weight), `
 
 ## License
 
-MIT
+Apache-2.0

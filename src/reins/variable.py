@@ -14,7 +14,7 @@ from neuromancer.constraint import (
 
 
 class Constraint(_NMConstraint):
-    """Constraint that recognises Variable subclasses (isinstance check)."""
+    """Constraint for REINS Variable expressions."""
 
     def __init__(self, left, right, comparator, weight=1.0, name=None):
         # Skip type checks in neuromancer Constraint
@@ -67,9 +67,6 @@ class Variable(_NMVariable):
     """
     Variable for REINS computation graphs.
 
-    Wraps neuromancer Variable to ensure ``key`` is set correctly
-    (neuromancer's positional arg is ``input_variables``, not ``key``).
-
     Args:
         key: String key for data dict lookup.
     """
@@ -110,11 +107,7 @@ class VarType(Enum):
 
 class TypeVariable(Variable):
     """
-    Typed decision variable for REINS mixed-integer optimization.
-
-    Behaves exactly like a neuromancer Variable (can be used directly
-    in computation graph expressions such as ``x @ Q``, ``x <= b``),
-    with additional type metadata and a ``.relaxed`` accessor.
+    Decision variable with integer/binary type metadata.
 
     Args:
         key: Variable name (must not end with '_rel').

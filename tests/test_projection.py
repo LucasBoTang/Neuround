@@ -260,3 +260,99 @@ class TestGradientProjection:
         result = proj(data)
         # Just rounds 1.6 -> 2.0
         assert torch.allclose(result["x"], torch.tensor([[2.0]]))
+
+
+class TestGradientProjectionNumerical:
+    """Verify exact numerical behavior of GradientProjection."""
+
+    def test_violation_decreases(self):
+        """Total violation should decrease after projection."""
+        rounding = MockRounding()
+        con = MockConstraint(upper_bound=3.0)
+        proj = GradientProjection(
+            rounding_components=[rounding],
+            constraints=[con],
+            target_keys=["x_rel"],
+            num_steps=50,
+            step_size=0.1,
+        )
+        # Before: round(5.5) = 6.0, violation = relu(6-3) = 3.0
+        x_rel_init = torch.tensor([[5.5]])
+        before_rounded = rounding({"x_rel": x_rel_init})["x"]
+        before_viol = torch.relu(before_rounded - 3.0).sum().item()
+        assert before_viol > 0
+        # After projection
+        result = proj({"x_rel": x_rel_init.clone()})
+        after_viol = torch.relu(result["x"] - 3.0).sum().item()
+        assert after_viol < before_viol
+
+    def test_converges_to_feasible(self):
+        """With enough steps, should converge to feasibility."""
+        proj = GradientProjection(
+            rounding_components=[MockRounding()],
+            constraints=[MockConstraint(upper_bound=3.0)],
+            target_keys=["x_rel"],
+            num_steps=500,
+            step_size=0.1,
+            decay=1.0,
+            tolerance=1e-8,
+        )
+        data = {"x_rel": torch.tensor([[5.5]])}
+        result = proj(data)
+        # After convergence, x should be <= 3
+        assert result["x"].item() <= 3.0 + 0.01
+
+    def test_decay_reduces_step_impact(self):
+        """With decay < 1, fewer violations are resolved in fixed steps."""
+        con = MockConstraint(upper_bound=3.0)
+        proj_no_decay = GradientProjection(
+            rounding_components=[MockRounding()],
+            constraints=[con],
+            target_keys=["x_rel"],
+            num_steps=10,
+            step_size=0.5,
+            decay=1.0,
+        )
+        proj_decay = GradientProjection(
+            rounding_components=[MockRounding()],
+            constraints=[MockConstraint(upper_bound=3.0, name="m2")],
+            target_keys=["x_rel"],
+            num_steps=10,
+            step_size=0.5,
+            decay=0.5,
+        )
+        r1 = proj_no_decay({"x_rel": torch.tensor([[5.5]])})
+        r2 = proj_decay({"x_rel": torch.tensor([[5.5]])})
+        viol1 = torch.relu(r1["x"] - 3.0).sum().item()
+        viol2 = torch.relu(r2["x"] - 3.0).sum().item()
+        # No decay should reduce violation more (or equal)
+        assert viol1 <= viol2 + 1e-6
+
+    def test_lower_bound_violation_decreases(self):
+        """Projection should work with lower bound constraints."""
+        proj = GradientProjection(
+            rounding_components=[MockRounding()],
+            constraints=[MockLowerBoundConstraint(lower_bound=5.0)],
+            target_keys=["x_rel"],
+            num_steps=200,
+            step_size=0.1,
+        )
+        # Before: round(1.5) = 2.0, violation = relu(5-2) = 3.0
+        data = {"x_rel": torch.tensor([[1.5]])}
+        result = proj(data)
+        # After projection, x should move towards >= 5
+        assert result["x"].item() >= 4.0
+
+    def test_batch_violations_decrease_independently(self):
+        """Each sample in batch should have reduced violations."""
+        proj = GradientProjection(
+            rounding_components=[MockRounding()],
+            constraints=[MockConstraint(upper_bound=3.0)],
+            target_keys=["x_rel"],
+            num_steps=100,
+            step_size=0.1,
+        )
+        data = {"x_rel": torch.tensor([[5.5], [6.5]])}
+        result = proj(data)
+        # Both samples should be closer to feasible
+        assert (result["x"] <= 3.0 + 0.5).all()

@@ -8,14 +8,10 @@ from reins.node.rounding.functions import DiffFloor, DiffBinarize, DiffGumbelBin
 
 class STERounding(RoundingNode):
     """
-    STE-based rounding without learnable parameters.
-
-    Integer variables: floor(x) + binarize(fractional - 0.5).
-    Binary variables: binarize(x - 0.5).
-    Uses deterministic STE binarization.
+    Deterministic STE-based rounding without learnable parameters.
 
     Args:
-        vars: Variable or list of variables with type metadata.
+        vars: TypeVariable or list of TypeVariables.
         name: Module name.
     """
 
@@ -54,13 +50,10 @@ class STERounding(RoundingNode):
 
 class StochasticSTERounding(STERounding):
     """
-    Stochastic STE-based rounding without learnable parameters.
-
-    Same as STERounding but uses DiffGumbelBinarize
-    for stochastic training and deterministic evaluation.
+    Stochastic STE-based rounding with Gumbel-Softmax noise.
 
     Args:
-        vars: Variable or list of variables with type metadata.
+        vars: TypeVariable or list of TypeVariables.
         temperature: Gumbel-Softmax temperature (default: 1.0).
         name: Module name.
     """

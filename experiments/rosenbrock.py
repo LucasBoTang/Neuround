@@ -1,19 +1,7 @@
 #!/usr/bin/env python
 # coding: utf-8
 """
-Experiment pipeline for Mixed-Integer Rosenbrock (MIRB)
-using the reins API.
-
-This problem has mixed variable types:
-  - x → CONTINUOUS (num_blocks vars)
-  - y → INTEGER    (num_blocks vars)
-
-Legacy mapping:
-  - nmRosenbrock (custom penaltyLoss) → PenaltyLoss via operator overloading
-  - roundGumbelModel                  → StochasticAdaptiveSelectionRounding
-  - roundThresholdModel               → DynamicThresholdRounding
-  - roundSTEModel                     → StochasticSTERounding
-  - netFC                             → MLPBnDrop (dropout=0.2, bnorm=True)
+Experiment pipeline for Mixed-Integer Rosenbrock (MIRB).
 """
 
 import time
@@ -67,10 +55,10 @@ def build_loss(x, y, p, a, steepness, num_blocks, penalty_weight, device="cpu", 
     y_expr = y.relaxed if relaxed else y
     b_coef, q_coef = _coefficients(num_blocks)
     b_coef, q_coef = b_coef.to(device), q_coef.to(device)
-    # objective
+    # Objective
     f = torch.sum((a - x_expr) ** 2 + steepness * (y_expr - x_expr ** 2) ** 2, dim=1)
     obj = f.minimize(weight=1.0, name="obj")
-    # constraints
+    # Constraints
     inner = penalty_weight * (num_blocks * p[:, 0:1] / 2 <= torch.sum(y_expr, dim=1, keepdim=True))
     inner.name = "inner"
     outer = penalty_weight * (torch.sum(x_expr ** 2, dim=1, keepdim=True) <= num_blocks * p[:, 0:1])
@@ -297,7 +285,7 @@ def run_AS(loader_train, loader_test, loader_val, config):
     rel_func = MLPBnDrop(insize=num_blocks + 1, outsize=2 * num_blocks,
                           hsizes=[hsize] * hlayers_sol,
                           nonlin=nn.ReLU)
-    rel= RelaxationNode(rel_func, [p, a], [x, y], sizes=[num_blocks, num_blocks], name="relaxation")
+    rel= RelaxationNode(rel_func, [p, a], [x, y], name="relaxation")
     # Create rounding network and operator
     rnd_net = MLPBnDrop(insize=3 * num_blocks + 1, outsize=2 * num_blocks,
                         hsizes=[hsize] * hlayers_rnd)
@@ -352,7 +340,7 @@ def run_DT(loader_train, loader_test, loader_val, config):
     rel_func = MLPBnDrop(insize=num_blocks + 1, outsize=2 * num_blocks,
                           hsizes=[hsize] * hlayers_sol,
                           nonlin=nn.ReLU)
-    rel= RelaxationNode(rel_func, [p, a], [x, y], sizes=[num_blocks, num_blocks], name="relaxation")
+    rel= RelaxationNode(rel_func, [p, a], [x, y], name="relaxation")
     # Create rounding network and operator
     rnd_net = MLPBnDrop(insize=3 * num_blocks + 1, outsize=2 * num_blocks,
                         hsizes=[hsize] * hlayers_rnd)
@@ -406,7 +394,7 @@ def run_RS(loader_train, loader_test, loader_val, config):
     rel_func = MLPBnDrop(insize=num_blocks + 1, outsize=2 * num_blocks,
                           hsizes=[hsize] * hlayers_sol,
                           nonlin=nn.ReLU)
-    rel= RelaxationNode(rel_func, [p, a], [x, y], sizes=[num_blocks, num_blocks], name="relaxation")
+    rel= RelaxationNode(rel_func, [p, a], [x, y], name="relaxation")
     # Create rounding operator
     rnd = StochasticSTERounding([x, y])
     # Set up solver
@@ -459,7 +447,7 @@ def run_LR(loader_train, loader_test, loader_val, config):
     rel_func = MLPBnDrop(insize=num_blocks + 1, outsize=2 * num_blocks,
                           hsizes=[hsize] * hlayers_sol,
                           nonlin=nn.ReLU)
-    rel= RelaxationNode(rel_func, [p, a], [x, y], sizes=[num_blocks, num_blocks], name="relaxation")
+    rel= RelaxationNode(rel_func, [p, a], [x, y], name="relaxation")
     # Set up problem and train
     problem = Problem(nodes=[rel], loss=loss)
     problem.to("cuda")

@@ -7,11 +7,7 @@ from torch import nn
 
 
 class DiffFloor(nn.Module):
-    """
-    Differentiable floor using straight-through estimator.
-
-    Forward: floor(x). Backward: identity (gradient passes through).
-    """
+    """Differentiable floor using straight-through estimator."""
     def __init__(self):
         super().__init__()
 
@@ -21,12 +17,7 @@ class DiffFloor(nn.Module):
 
 
 class DiffBinarize(nn.Module):
-    """
-    Differentiable binarize using straight-through estimator.
-
-    Forward: 1 if x >= 0 else 0 (clamped to [-1, 1]).
-    Backward: identity (gradient passes through).
-    """
+    """Differentiable binarize using straight-through estimator."""
     def __init__(self):
         super().__init__()
 
@@ -39,10 +30,7 @@ class DiffBinarize(nn.Module):
 
 class DiffGumbelBinarize(nn.Module):
     """
-    Differentiable binarize using Gumbel-Softmax trick.
-
-    Train: Gumbel noise + sigmoid soft sample with STE hard sample.
-    Eval: temperature-scaled sigmoid thresholded at 0.5.
+    Stochastic differentiable binarize using Gumbel-Softmax trick.
 
     Args:
         temperature: Gumbel-Softmax temperature (default: 1.0).
@@ -73,10 +61,7 @@ class DiffGumbelBinarize(nn.Module):
 
 class GumbelThresholdBinarize(nn.Module):
     """
-    Learned threshold binarization with Gumbel-Softmax stochasticity.
-
-    Train: Gumbel noise + sigmoid on (x - threshold), with STE hard output.
-    Eval: deterministic x >= threshold.
+    Stochastic threshold binarization with Gumbel-Softmax noise.
 
     Args:
         temperature: Gumbel-Softmax temperature (default: 1.0).
@@ -109,9 +94,7 @@ class GumbelThresholdBinarize(nn.Module):
 
 class ThresholdBinarize(nn.Module):
     """
-    Learned threshold binarization with sigmoid smoothing.
-
-    Forward: 1 if x >= threshold else 0, with sigmoid STE for gradients.
+    Deterministic threshold binarization with sigmoid STE.
 
     Args:
         slope: Sigmoid slope for soft approximation (default: 10).

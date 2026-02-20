@@ -1,34 +1,30 @@
 import math
 
 def naive_round(xval_rel, model):
-    """
-    A method to just round
-    """
-    # get solution value
+    """Round integer variables to nearest integer."""
+    # Assign solution values
     for k, vals in xval_rel.items():
-        # assign initial solution
+        # Assign initial solution
         for i in vals:
-            # round integer variables
+            # Round integer variables
             if model.vars[k][i].is_integer():
                 model.vars[k][i].value = round(vals[i])
-            # assign continuous variables
+            # Assign continuous variables
             else:
                 model.vars[k][i].value = vals[i]
     xval, objval = model.get_val()
     return xval, objval
 
 def floor_round(xval_rel, model):
-    """
-    A method to just round
-    """
-    # get solution value
+    """Round integer variables down (floor)."""
+    # Assign solution values
     for k, vals in xval_rel.items():
-        # assign initial solution
+        # Assign initial solution
         for i in vals:
-            # round integer variables
+            # Round integer variables
             if model.vars[k][i].is_integer():
                 model.vars[k][i].value = math.floor(vals[i])
-            # assign continuous variables
+            # Assign continuous variables
             else:
                 model.vars[k][i].value = vals[i]
     xval, objval = model.get_val()
