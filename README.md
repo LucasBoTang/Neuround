@@ -85,6 +85,9 @@ import torch
 import numpy as np
 from reins import PenaltyLoss
 
+num_var = 5
+num_ineq = 5
+
 # Fixed problem coefficients
 rng = np.random.RandomState(17)
 Q = torch.from_numpy(0.01 * np.diag(rng.random(size=num_var))).float()
@@ -110,9 +113,6 @@ The relaxation network learns the mapping $b \mapsto x_{\text{rel}}$. Wrap any P
 ```python
 from reins import MLPBnDrop
 from reins.node import RelaxationNode
-
-num_var = 5
-num_ineq = 5
 
 rel_net = MLPBnDrop(
     insize=num_ineq,
@@ -218,6 +218,7 @@ src/reins/                    # Core package
 ├── __init__.py                  # Public API
 ├── variable.py                  # VarType enum & TypeVariable class
 ├── blocks.py                    # MLPBnDrop (MLP with BatchNorm + Dropout)
+├── loss.py                      # PenaltyLoss (sum-reduced penalty loss)
 ├── solver.py                    # LearnableSolver wrapper
 ├── node/                        # Node components
 │   ├── relaxation.py            # RelaxationNode (relaxation solution)
@@ -229,7 +230,6 @@ src/reins/                    # Core package
 │       └── selection.py         # AdaptiveSelectionRounding, StochasticAdaptiveSelectionRounding
 ├── projection/                  # Feasibility projection
 │   └── gradient.py              # GradientProjection
-└── utils/
 experiments/                     # Benchmark experiments (not part of the package)
 ├── quadratic.py                 # Integer Quadratic Programming (IQP)
 ├── nonconvex.py                 # Integer Non-Convex Programming (INP)
