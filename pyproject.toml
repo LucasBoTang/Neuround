@@ -7,7 +7,7 @@ name = "reins"
 version = "0.0.1"
 description = "A learning-to-optimize framework for Mixed-Integer Nonlinear Programming (MINLP)"
 readme = "README.md"
-license = "MIT"
+license = "Apache-2.0"
 requires-python = ">=3.10"
 authors = [
     { name = "Bo Tang", email = "botang@mie.utoronto.ca" },
@@ -16,6 +16,7 @@ keywords = ["optimization", "MINLP", "mixed-integer", "nonlinear programming", "
 classifiers = [
     "Development Status :: 2 - Pre-Alpha",
     "Intended Audience :: Science/Research",
+    "License :: OSI Approved :: Apache Software License",
     "Topic :: Scientific/Engineering :: Mathematics",
     "Topic :: Scientific/Engineering :: Artificial Intelligence",
     "Programming Language :: Python :: 3",
@@ -24,8 +25,8 @@ classifiers = [
     "Programming Language :: Python :: 3.12",
 ]
 dependencies = [
-    "neuromancer",
-    "torch",
+    "neuromancer>=1.4",
+    "torch>=2.0",
 ]
 
 [project.optional-dependencies]
@@ -34,7 +35,7 @@ dev = [
 ]
 
 [project.urls]
-Homepage = "https://github.com/pnnl/L2O-pMINLP"
+Homepage = "https://github.com/LucasBoTang/REINS"
 Paper = "https://arxiv.org/abs/2410.11061"
 
 [tool.setuptools.packages.find]

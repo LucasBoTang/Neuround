@@ -2,6 +2,8 @@
 reins: Neuromancer extension for Mixed-Integer Nonlinear Programming.
 """
 
+__version__ = "0.0.1"
+
 # ---- Re-exports from neuromancer ----
 from neuromancer.dataset import DictDataset
 from neuromancer.problem import Problem
