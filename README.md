@@ -122,7 +122,7 @@ rel_net = MLPBnDrop(
     bnorm=True,       # batch normalization
 )
 
-# data["b"] -> rel_net -> data["x_rel"]
+# b -> rel_net -> x_rel
 rel = RelaxationNode(rel_net, [b], [x])
 ```
 
@@ -143,10 +143,10 @@ rnd_net = MLPBnDrop(
     hsizes=[64] * 3,
 )
 
-# Adaptive Selection (AS)
+# Adaptive Selection (AS): (b, x_rel) -> rnd_net -> x
 rounding = StochasticAdaptiveSelectionRounding(rnd_net, [b], [x], continuous_update=True)
 
-# Dynamic Thresholding (DT)
+# Dynamic Thresholding (DT): (b, x_rel) -> rnd_net -> x
 rounding = DynamicThresholdRounding(rnd_net, [b], [x])
 ```
 
@@ -226,8 +226,8 @@ src/reins/                    # Core package
 │       ├── functions.py         # Differentiable STE primitives
 │       ├── base.py              # RoundingNode abstract base class
 │       ├── ste.py               # STERounding, StochasticSTERounding
-│       ├── threshold.py         # DynamicThresholdRounding, StochasticDynamicThresholdRounding
-│       └── selection.py         # AdaptiveSelectionRounding, StochasticAdaptiveSelectionRounding
+│       ├── selection.py         # AdaptiveSelectionRounding, StochasticAdaptiveSelectionRounding
+│       └── threshold.py         # DynamicThresholdRounding, StochasticDynamicThresholdRounding
 ├── projection/                  # Feasibility projection
 │   └── gradient.py              # GradientProjection
 experiments/                     # Benchmark experiments (not part of the package)
