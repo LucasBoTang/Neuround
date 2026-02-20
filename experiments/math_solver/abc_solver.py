@@ -216,39 +216,48 @@ class abcParamSolver(ABC):
         # Clone model
         model_heur = self.clone()
         if self.solver == "scip":
-            # Set solution limit
+            # Only process root node
             model_heur.opt.options["limits/nodes"] = 1
-            # Disable presolve
+            # Disable presolve and separation
             model_heur.opt.options["presolving/maxrounds"] = 0
-            # Disable separation
             model_heur.opt.options["separating/maxrounds"] = 0
-            # Emphasize heuristic usage
-            model_heur.opt.options["heuristics/emphasis"] = 3
-            # Disable other heuristics
+            # All SCIP primal heuristics
             all_heuristics = [# Rounding
                               "rounding", "simplerounding", "randrounding", "zirounding",
                               # Shifting
-                              "shifting", "intshifting", "shiftandpropagate",
+                              "shifting", "intshifting",
                               # Flip
                               "oneopt", "twoopt",
                               # Indicator
                               "indicator",
                               # Diving
-                              "indicatordiving", "farkasdiving", "conflictdiving",
-                              "nlpdiving", "guideddiving", "adaptivediving",
-                              "coefdiving", "pscostdiving", "objpscostdiving",
-                              "fracdiving", "veclendiving", "distributiondiving",
-                              "rootsoldiving", "linesearchdiving",
-                              # Search
-                              "alns", "localbranching", "rins", "rens", "gins", "dins", "lpface",
+                              "actconsdiving", "indicatordiving", "farkasdiving",
+                              "conflictdiving", "nlpdiving", "guideddiving",
+                              "adaptivediving", "coefdiving", "pscostdiving",
+                              "objpscostdiving", "fracdiving", "veclendiving",
+                              "distributiondiving", "rootsoldiving",
+                              "linesearchdiving", "intdiving",
+                              # LNS
+                              "alns", "localbranching", "rins", "rens", "gins",
+                              "dins", "lpface", "clique", "crossover",
+                              "mutation", "trustregion", "vbounds",
                               # Subsolve
-                              "feaspump", "subnlp"]
+                              "feaspump", "subnlp",
+                              # Repair
+                              "bound", "completesol", "fixandinfer", "repair",
+                              # Other
+                              "locks", "mpec", "multistart", "octane", "ofins",
+                              "padm", "proximity", "trivial", "trivialnegation",
+                              "trysol", "undercover", "zeroobj", "reoptsols"]
             if heuristic_name not in all_heuristics:
                 raise ValueError(f"Unknown heuristic '{heuristic_name}'. Choose from {all_heuristics}.")
+            # Disable all heuristics, then enable only the target one
             for heur in all_heuristics:
                 model_heur.opt.options[f"heuristics/{heur}/freq"] = -1
-            model_heur.opt.options[f"heuristics/{heuristic_name}/freq"] = 1
+            # freq=0 + freqofs=0: execute only at root node (depth 0)
+            model_heur.opt.options[f"heuristics/{heuristic_name}/freq"] = 0
+            model_heur.opt.options[f"heuristics/{heuristic_name}/freqofs"] = 0
             model_heur.opt.options[f"heuristics/{heuristic_name}/priority"] = 536870911
         else:
-            raise ValueError("Solver '{}' does not support setting a solution limit.".format(self.solver))
+            raise ValueError("Solver '{}' does not support configuring primal heuristics.".format(self.solver))
         return model_heur
