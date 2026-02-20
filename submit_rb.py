@@ -54,43 +54,44 @@ p_low, p_high = 1.0, 8.0
 a_low, a_high = 0.5, 4.5
 
 print("Rosenbrock\n")
-for penalty in penalty_weights:
-    # Set penalty in config
-    config.penalty = penalty
-    print(f"  Penalty weight: {penalty}")
-    for size in sizes:
-        # Random seed per size for reproducibility
-        random.seed(42)
-        np.random.seed(42)
-        torch.manual_seed(42)
-        torch.cuda.manual_seed(42)
+for size in sizes:
+    # Random seed per size for reproducibility
+    random.seed(42)
+    np.random.seed(42)
+    torch.manual_seed(42)
+    torch.cuda.manual_seed(42)
 
-        # Set size-dependent config
-        config.size = size
-        config.hsize = hsize_dict[size]
-        num_blocks = size
+    # Set size-dependent config
+    config.size = size
+    config.hsize = hsize_dict[size]
+    num_blocks = size
 
-        # Generate data
-        p_train = torch.empty(train_size, 1).uniform_(p_low, p_high)
-        p_test  = torch.empty(test_size, 1).uniform_(p_low, p_high)
-        p_val   = torch.empty(val_size, 1).uniform_(p_low, p_high)
-        a_train = torch.empty(train_size, num_blocks).uniform_(a_low, a_high)
-        a_test  = torch.empty(test_size, num_blocks).uniform_(a_low, a_high)
-        a_val   = torch.empty(val_size, num_blocks).uniform_(a_low, a_high)
+    # Generate data (shared across all penalties)
+    p_train = torch.empty(train_size, 1).uniform_(p_low, p_high)
+    p_test  = torch.empty(test_size, 1).uniform_(p_low, p_high)
+    p_val   = torch.empty(val_size, 1).uniform_(p_low, p_high)
+    a_train = torch.empty(train_size, num_blocks).uniform_(a_low, a_high)
+    a_test  = torch.empty(test_size, num_blocks).uniform_(a_low, a_high)
+    a_val   = torch.empty(val_size, num_blocks).uniform_(a_low, a_high)
 
-        # Datasets
-        data_train = DictDataset({"p":p_train, "a":a_train}, name="train")
-        data_test = DictDataset({"p":p_test, "a":a_test}, name="test")
-        data_val = DictDataset({"p":p_val, "a":a_val}, name="dev")
+    # Datasets
+    data_train = DictDataset({"p":p_train, "a":a_train}, name="train")
+    data_test = DictDataset({"p":p_test, "a":a_test}, name="test")
+    data_val = DictDataset({"p":p_val, "a":a_val}, name="dev")
 
-        # Torch dataloaders
-        loader_train = DataLoader(data_train, config.batch_size, num_workers=0, collate_fn=data_train.collate_fn, shuffle=True, pin_memory=True)
-        loader_test = DataLoader(data_test, config.batch_size, num_workers=0, collate_fn=data_test.collate_fn, shuffle=False, pin_memory=True)
-        loader_val = DataLoader(data_val, config.batch_size, num_workers=0, collate_fn=data_val.collate_fn, shuffle=False, pin_memory=True)
+    # Torch dataloaders
+    loader_train = DataLoader(data_train, config.batch_size, num_workers=0, collate_fn=data_train.collate_fn, shuffle=True, pin_memory=True)
+    loader_test = DataLoader(data_test, config.batch_size, num_workers=0, collate_fn=data_test.collate_fn, shuffle=False, pin_memory=True)
+    loader_val = DataLoader(data_val, config.batch_size, num_workers=0, collate_fn=data_val.collate_fn, shuffle=False, pin_memory=True)
 
-        # Set timeout based on problem size
-        timeout = 60 if size <= 300 else 360
-        print(f"    Submitting size={size}, penalty={penalty}, timeout={timeout}min")
+    # Set timeout based on problem size
+    timeout = 60 if size <= 300 else 360
+    print(f"  Size: {size}")
+
+    for penalty in penalty_weights:
+        # Set penalty in config
+        config.penalty = penalty
+        print(f"    Penalty weight: {penalty}, timeout={timeout}min")
 
         # Non-projection versions
         config.project = False

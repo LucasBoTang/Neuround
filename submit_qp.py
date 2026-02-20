@@ -50,46 +50,47 @@ def submit_job(func, *args, timeout_min):
 
 
 print("Integer Quadratic\n")
-for penalty in penalty_weights:
-    # Set penalty in config
-    config.penalty = penalty
-    print(f"  Penalty weight: {penalty}")
-    for size in sizes:
-        # Random seed per size for reproducibility
-        random.seed(42)
-        np.random.seed(42)
-        torch.manual_seed(42)
-        torch.cuda.manual_seed(42)
+for size in sizes:
+    # Random seed per size for reproducibility
+    random.seed(42)
+    np.random.seed(42)
+    torch.manual_seed(42)
+    torch.cuda.manual_seed(42)
 
-        # Set size-dependent config
-        config.size = size
-        config.hsize = hsize_dict[size]
-        num_var = size
-        num_ineq = size
+    # Set size-dependent config
+    config.size = size
+    config.hsize = hsize_dict[size]
+    num_var = size
+    num_ineq = size
 
-        # Data sample from uniform distribution
-        b_samples = torch.from_numpy(np.random.uniform(-1, 1, size=(num_data, num_ineq))).float()
+    # Data sample from uniform distribution (shared across all penalties)
+    b_samples = torch.from_numpy(np.random.uniform(-1, 1, size=(num_data, num_ineq))).float()
 
-        # Data split
-        ind = list(range(num_data))
-        ind_train, ind_test = train_test_split(ind, test_size=test_size, random_state=42, shuffle=True)
-        ind_train, ind_val = train_test_split(ind_train, test_size=val_size, random_state=42, shuffle=True)
-        # Convert indices to tensors for efficient indexing
-        itrain, itest, ival = torch.tensor(ind_train), torch.tensor(ind_test), torch.tensor(ind_val)
-        data_train = DictDataset({"b": b_samples[itrain]}, name="train")
-        data_test = DictDataset({"b": b_samples[itest]}, name="test")
-        data_val = DictDataset({"b": b_samples[ival]}, name="dev")
-        # Torch dataloaders
-        loader_train = DataLoader(data_train, config.batch_size, num_workers=0,
-                                  collate_fn=data_train.collate_fn, shuffle=True, pin_memory=True)
-        loader_test  = DataLoader(data_test, config.batch_size, num_workers=0,
-                                  collate_fn=data_test.collate_fn, shuffle=False, pin_memory=True)
-        loader_val   = DataLoader(data_val, config.batch_size, num_workers=0,
-                                  collate_fn=data_val.collate_fn, shuffle=False, pin_memory=True)
+    # Data split
+    ind = list(range(num_data))
+    ind_train, ind_test = train_test_split(ind, test_size=test_size, random_state=42, shuffle=True)
+    ind_train, ind_val = train_test_split(ind_train, test_size=val_size, random_state=42, shuffle=True)
+    # Convert indices to tensors for efficient indexing
+    itrain, itest, ival = torch.tensor(ind_train), torch.tensor(ind_test), torch.tensor(ind_val)
+    data_train = DictDataset({"b": b_samples[itrain]}, name="train")
+    data_test = DictDataset({"b": b_samples[itest]}, name="test")
+    data_val = DictDataset({"b": b_samples[ival]}, name="dev")
+    # Torch dataloaders
+    loader_train = DataLoader(data_train, config.batch_size, num_workers=0,
+                              collate_fn=data_train.collate_fn, shuffle=True, pin_memory=True)
+    loader_test  = DataLoader(data_test, config.batch_size, num_workers=0,
+                              collate_fn=data_test.collate_fn, shuffle=False, pin_memory=True)
+    loader_val   = DataLoader(data_val, config.batch_size, num_workers=0,
+                              collate_fn=data_val.collate_fn, shuffle=False, pin_memory=True)
 
-        # Set timeout based on problem size
-        timeout = 20 if size <= 20 else 60
-        print(f"    Submitting size={size}, penalty={penalty}, timeout={timeout}min")
+    # Set timeout based on problem size
+    timeout = 20 if size <= 20 else 60
+    print(f"  Size: {size}")
+
+    for penalty in penalty_weights:
+        # Set penalty in config
+        config.penalty = penalty
+        print(f"    Penalty weight: {penalty}, timeout={timeout}min")
 
         # Non-projection versions
         config.project = False
