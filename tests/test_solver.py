@@ -9,7 +9,7 @@ from torch.utils.data import DataLoader
 import neuromancer as nm
 from neuromancer.system import Node
 from neuromancer.dataset import DictDataset
-from neuromancer.loss import PenaltyLoss
+from reins.loss import PenaltyLoss
 
 from reins.solver import LearnableSolver
 from reins.variable import TypeVariable
