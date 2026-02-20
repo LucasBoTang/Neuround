@@ -7,7 +7,7 @@ import torch
 import torch.nn as nn
 
 from neuromancer.system import Node
-from reins.variable import Variable
+from reins.variable import Variable, TypeVariable, VarType
 from reins.node.relaxation import RelaxationNode
 
 
@@ -20,6 +20,11 @@ def seed():
 def _var(key):
     """Create a reins Variable with the given key."""
     return Variable(key)
+
+
+def _typed_var(key, num_vars):
+    """Create a TypeVariable with the given key and num_vars (all continuous)."""
+    return TypeVariable(key, num_vars=num_vars)
 
 
 # ── TestRelaxationNodeInit ──────────────────────────────────────────────────
@@ -66,9 +71,46 @@ class TestRelaxationNodeInit:
         assert rel.input_keys == ["b", "d"]
 
     def test_multi_output_without_sizes_raises(self):
+        """Plain Variable multi-output without sizes still raises."""
         net = nn.Linear(4, 6)
         with pytest.raises(ValueError, match="sizes is required"):
             RelaxationNode(net, [_var("b")], [_var("x"), _var("y")])
+
+    def test_auto_derive_sizes_from_typevariable(self):
+        """Multi-var with TypeVariable, no sizes -> auto-derives successfully."""
+        net = nn.Linear(4, 6)
+        rel = RelaxationNode(net, [_var("b")], [_typed_var("x", 3), _typed_var("y", 3)])
+        assert rel.output_keys == ["x_rel", "y_rel"]
+
+    def test_auto_derive_sizes_stored(self):
+        net = nn.Linear(4, 6)
+        rel = RelaxationNode(net, [_var("b")], [_typed_var("x", 3), _typed_var("y", 3)])
+        assert rel.sizes == [3, 3]
+
+    def test_auto_derive_sizes_uneven(self):
+        net = nn.Linear(4, 7)
+        rel = RelaxationNode(net, [_var("b")], [_typed_var("x", 5), _typed_var("y", 2)])
+        assert rel.sizes == [5, 2]
+
+    def test_explicit_sizes_still_works(self):
+        """Backward compat: explicit sizes matching num_vars accepted."""
+        net = nn.Linear(4, 6)
+        rel = RelaxationNode(
+            net, [_var("b")], [_typed_var("x", 3), _typed_var("y", 3)], sizes=[3, 3]
+        )
+        assert rel.sizes == [3, 3]
+
+    def test_sizes_mismatch_with_num_vars_raises(self):
+        net = nn.Linear(4, 6)
+        with pytest.raises(ValueError, match="do not match num_vars"):
+            RelaxationNode(
+                net, [_var("b")], [_typed_var("x", 3), _typed_var("y", 3)], sizes=[4, 2]
+            )
+
+    def test_single_typevariable_auto_derives(self):
+        net = nn.Linear(4, 3)
+        rel = RelaxationNode(net, [_var("b")], [_typed_var("x", 3)])
+        assert rel.sizes == [3]
 
 
 # ── TestRelaxationNodeForward ───────────────────────────────────────────────
@@ -135,6 +177,25 @@ class TestRelaxationNodeForward:
         data = {"b": torch.randn(8, 4), "d": torch.randn(8, 2)}
         result = rel(data)
         assert result["x_rel"].shape == (8, 3)
+
+    def test_multi_var_split_auto_derived(self):
+        """Forward produces correct shapes with auto-derived sizes."""
+        net = nn.Linear(4, 6)
+        rel = RelaxationNode(net, [_var("b")], [_typed_var("x", 3), _typed_var("y", 3)])
+        data = {"b": torch.randn(8, 4)}
+        result = rel(data)
+        assert result["x_rel"].shape == (8, 3)
+        assert result["y_rel"].shape == (8, 3)
+
+    def test_split_correctness_auto_derived(self):
+        """Split outputs match expected slices with auto-derived sizes."""
+        net = nn.Linear(4, 7)
+        rel = RelaxationNode(net, [_var("b")], [_typed_var("x", 5), _typed_var("y", 2)])
+        b = torch.randn(8, 4)
+        full_output = net(b)
+        result = rel({"b": b})
+        assert torch.allclose(result["x_rel"], full_output[:, :5])
+        assert torch.allclose(result["y_rel"], full_output[:, 5:])
 
 
 # ── TestRelaxationNodeExport ────────────────────────────────────────────────

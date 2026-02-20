@@ -277,7 +277,7 @@ def run_AS(loader_train, loader_test, loader_val, config):
     rel_func = MLPBnDrop(insize=num_blocks + 1, outsize=2 * num_blocks,
                           hsizes=[hsize] * hlayers_sol,
                           nonlin=nn.ReLU)
-    rel= RelaxationNode(rel_func, [p, a], [x, y], sizes=[num_blocks, num_blocks], name="relaxation")
+    rel= RelaxationNode(rel_func, [p, a], [x, y], name="relaxation")
     # Create rounding network and operator
     rnd_net = MLPBnDrop(insize=3 * num_blocks + 1, outsize=2 * num_blocks,
                         hsizes=[hsize] * hlayers_rnd)
@@ -326,7 +326,7 @@ def run_DT(loader_train, loader_test, loader_val, config):
     rel_func = MLPBnDrop(insize=num_blocks + 1, outsize=2 * num_blocks,
                           hsizes=[hsize] * hlayers_sol,
                           nonlin=nn.ReLU)
-    rel= RelaxationNode(rel_func, [p, a], [x, y], sizes=[num_blocks, num_blocks], name="relaxation")
+    rel= RelaxationNode(rel_func, [p, a], [x, y], name="relaxation")
     # Create rounding network and operator
     rnd_net = MLPBnDrop(insize=3 * num_blocks + 1, outsize=2 * num_blocks,
                         hsizes=[hsize] * hlayers_rnd)
@@ -374,7 +374,7 @@ def run_RS(loader_train, loader_test, loader_val, config):
     rel_func = MLPBnDrop(insize=num_blocks + 1, outsize=2 * num_blocks,
                           hsizes=[hsize] * hlayers_sol,
                           nonlin=nn.ReLU)
-    rel= RelaxationNode(rel_func, [p, a], [x, y], sizes=[num_blocks, num_blocks], name="relaxation")
+    rel= RelaxationNode(rel_func, [p, a], [x, y], name="relaxation")
     # Create rounding operator
     rnd = StochasticSTERounding([x, y])
     # Set up solver
@@ -421,7 +421,7 @@ def run_LR(loader_train, loader_test, loader_val, config):
     rel_func = MLPBnDrop(insize=num_blocks + 1, outsize=2 * num_blocks,
                           hsizes=[hsize] * hlayers_sol,
                           nonlin=nn.ReLU)
-    rel= RelaxationNode(rel_func, [p, a], [x, y], sizes=[num_blocks, num_blocks], name="relaxation")
+    rel= RelaxationNode(rel_func, [p, a], [x, y], name="relaxation")
     # Set up problem and train
     problem = Problem(nodes=[rel], loss=loss)
     problem.to("cuda")
