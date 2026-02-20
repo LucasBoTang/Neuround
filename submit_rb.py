@@ -39,24 +39,26 @@ val_size = 1000                         # Number of validation size
 
 def submit_job(func, *args, timeout_min):
     """Submit a single SLURM job via submitit."""
+    partition = "gpubase_bygpu_b1" if timeout_min <= 180 else "gpubase_bygpu_b2"
     executor = submitit.AutoExecutor(folder="logs")
     executor.update_parameters(
-        slurm_additional_parameters={"account": "def-khalile2",
-                                     "constraint": "v100l"},
+        slurm_additional_parameters={"account": "def-khalile2_gpu",
+                                     "gres": "gpu:h100:1",
+                                     "partition": partition},
         timeout_min=timeout_min,
         mem_gb=64,
         cpus_per_task=16,
-        gpus_per_node=1,
     )
     job = executor.submit(func, *args)
-    print(f"Submitted job with ID: {job.job_id}")
+    print(f"        Submitted job with ID: {job.job_id}")
+    print()
 
 
 # Parameters as input data
 p_low, p_high = 1.0, 8.0
 a_low, a_high = 0.5, 4.5
 
-print("Rosenbrock")
+print("Rosenbrock\n")
 for size in sizes:
     # Random seed per size for reproducibility
     random.seed(42)
@@ -89,31 +91,38 @@ for size in sizes:
 
     # Set timeout based on problem size
     timeout = 60 if size <= 300 else 360
-    print(f"Submitting size={size}, timeout={timeout}min")
+    print(f"    Submitting size={size}, timeout={timeout}min")
 
     # Non-projection versions
     config.project = False
     # Adaptive selection rounding
+    print("        Adaptive Selection, no projection")
     submit_job(experiments.rosenbrock.run_AS, loader_train, loader_test, loader_val, config,
                timeout_min=timeout)
     # Dynamic threshold rounding
+    print("        Dynamic Threshold, no projection")
     submit_job(experiments.rosenbrock.run_DT, loader_train, loader_test, loader_val, config,
                timeout_min=timeout)
     # Learn-then-round
+    print("        Learn-then-Round, no projection")
     submit_job(experiments.rosenbrock.run_LR, loader_train, loader_test, loader_val, config,
                timeout_min=timeout)
     # STE rounding
+    print("        STE Rounding, no projection")
     submit_job(experiments.rosenbrock.run_RS, loader_train, loader_test, loader_val, config,
                timeout_min=timeout)
 
     # Projection versions
     config.project = True
     # Adaptive selection rounding + projection
+    print("        Adaptive Selection, with projection")
     submit_job(experiments.rosenbrock.run_AS, loader_train, loader_test, loader_val, config,
                timeout_min=timeout)
     # Dynamic threshold rounding + projection
+    print("        Dynamic Threshold, with projection")
     submit_job(experiments.rosenbrock.run_DT, loader_train, loader_test, loader_val, config,
                timeout_min=timeout)
     # STE rounding + projection
+    print("        STE Rounding, with projection")
     submit_job(experiments.rosenbrock.run_RS, loader_train, loader_test, loader_val, config,
                timeout_min=timeout)
