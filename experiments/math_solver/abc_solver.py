@@ -92,9 +92,9 @@ class abcParamSolver(ABC):
         solvals = {}
         try:
             for key, var_comp in self.vars.items():
-                solvals[key] = {i: var_comp[i].value for i in var_comp}
+                solvals[key] = {i: float(var_comp[i].value) for i in var_comp}
             # Get the objective value
-            objval = pe.value(self.model.obj)
+            objval = float(pe.value(self.model.obj))
         except (ValueError, AttributeError, TypeError):
             # No value or invalid state
             solvals, objval = None, None
