@@ -988,6 +988,26 @@ class TestNumericalFunctions:
         expected = torch.tensor([1.0, 0.0, 1.0, 0.0])
         assert torch.allclose(result, expected)
 
+    def test_diff_gumbel_binarize_boundary_zero(self):
+        """DiffGumbelBinarize eval at x=0: sigmoid(0)=0.5, NOT > 0.5 -> 0."""
+        dgb = DiffGumbelBinarize(temperature=1.0)
+        dgb.eval()
+        x = torch.tensor([0.0])
+        result = dgb(x)
+        # sigmoid(0) = 0.5, 0.5 > 0.5 is False -> 0.0
+        assert result.item() == 0.0
+
+    def test_diff_binarize_vs_gumbel_at_zero(self):
+        """DiffBinarize and DiffGumbelBinarize differ at x=0."""
+        b = DiffBinarize()
+        g = DiffGumbelBinarize(temperature=1.0)
+        g.eval()
+        x = torch.tensor([0.0])
+        # DiffBinarize: 0.0 >= 0 -> 1.0
+        assert b(x).item() == 1.0
+        # DiffGumbelBinarize: sigmoid(0) = 0.5, NOT > 0.5 -> 0.0
+        assert g(x).item() == 0.0
+
 
 # ── TestNumericalSTERounding ─────────────────────────────────────────
 
@@ -1078,3 +1098,86 @@ class TestNumericalSTERounding:
         expected = torch.tensor([[1.0, 3.0],
                                   [1.0, 0.0]])
         assert torch.allclose(result, expected)
+
+    def test_multi_var_exact_values(self):
+        """Verify exact values with two TypeVariables rounded independently."""
+        x = _make_var("x", 3, integer_indices=[0, 1, 2])
+        y = _make_var("y", 2, binary_indices=[0, 1])
+        layer = STERounding([x, y])
+        layer.eval()
+        data = {
+            "x_rel": torch.tensor([[1.3, 2.7, 0.1]]),
+            "y_rel": torch.tensor([[0.8, 0.2]]),
+        }
+        result = layer(data)
+        # x: integer [1.3, 2.7, 0.1] -> [1.0, 3.0, 0.0]
+        assert torch.allclose(result["x"], torch.tensor([[1.0, 3.0, 0.0]]))
+        # y: binary [0.8, 0.2] -> binarize([0.3, -0.3]) -> [1.0, 0.0]
+        assert torch.allclose(result["y"], torch.tensor([[1.0, 0.0]]))
+
+
+# ── TestNumericalStochasticSTERounding ───────────────────────────────
+
+class TestNumericalStochasticSTERounding:
+    """Verify StochasticSTERounding eval-mode numerical outputs."""
+
+    def test_eval_integer_exact_values(self):
+        """Eval mode integer rounding via DiffGumbelBinarize."""
+        var = _make_var("x", 3, integer_indices=[0, 1, 2])
+        layer = StochasticSTERounding(var, temperature=1.0)
+        layer.eval()
+        # x_rel = [1.3, 2.7, 0.1]
+        # floor:  [1.0, 2.0, 0.0]
+        # frac - 0.5: [-0.2, 0.2, -0.4]
+        # DiffGumbelBinarize eval: (sigmoid(x) > 0.5).float()
+        # sigmoid(-0.2) < 0.5 -> 0, sigmoid(0.2) > 0.5 -> 1, sigmoid(-0.4) < 0.5 -> 0
+        # result: [1.0, 3.0, 0.0]
+        data = {"x_rel": torch.tensor([[1.3, 2.7, 0.1]])}
+        result = layer(data)["x"]
+        expected = torch.tensor([[1.0, 3.0, 0.0]])
+        assert torch.allclose(result, expected)
+
+    def test_eval_binary_exact_values(self):
+        """Eval mode binary rounding via DiffGumbelBinarize."""
+        var = _make_var("x", 3, binary_indices=[0, 1, 2])
+        layer = StochasticSTERounding(var, temperature=1.0)
+        layer.eval()
+        # x - 0.5: [0.3, -0.3, 0.0]
+        # sigmoid(0.3) > 0.5 -> 1, sigmoid(-0.3) < 0.5 -> 0
+        # sigmoid(0.0) = 0.5, NOT > 0.5 -> 0
+        data = {"x_rel": torch.tensor([[0.8, 0.2, 0.5]])}
+        result = layer(data)["x"]
+        expected = torch.tensor([[1.0, 0.0, 0.0]])
+        assert torch.allclose(result, expected)
+
+    def test_eval_differs_from_ste_at_boundary(self):
+        """At frac=0.5, STERounding rounds UP but StochasticSTERounding rounds DOWN."""
+        var = _make_var("x", 1, integer_indices=[0])
+        ste = STERounding(var)
+        stochastic = StochasticSTERounding(var, temperature=1.0)
+        ste.eval()
+        stochastic.eval()
+        # frac = 0.5, frac - 0.5 = 0.0
+        data_ste = {"x_rel": torch.tensor([[1.5]])}
+        data_sto = {"x_rel": torch.tensor([[1.5]])}
+        ste_result = ste(data_ste)["x"]
+        sto_result = stochastic(data_sto)["x"]
+        # STE: DiffBinarize(0.0) = (0.0 >= 0) = 1.0 -> floor(1.5)+1 = 2.0
+        assert ste_result.item() == 2.0
+        # Stochastic: DiffGumbelBinarize.eval(0.0) = (sigmoid(0)>0.5) = False -> 0.0
+        # -> floor(1.5)+0 = 1.0
+        assert sto_result.item() == 1.0
+
+    def test_eval_matches_ste_away_from_boundary(self):
+        """Away from frac=0.5, both should agree."""
+        var = _make_var("x", 3, integer_indices=[0, 1, 2])
+        ste = STERounding(var)
+        stochastic = StochasticSTERounding(var, temperature=1.0)
+        ste.eval()
+        stochastic.eval()
+        # frac values [0.3, 0.7, 0.1] are away from 0.5
+        data_ste = {"x_rel": torch.tensor([[1.3, 2.7, 0.1]])}
+        data_sto = {"x_rel": torch.tensor([[1.3, 2.7, 0.1]])}
+        ste_result = ste(data_ste)["x"]
+        sto_result = stochastic(data_sto)["x"]
+        assert torch.allclose(ste_result, sto_result)

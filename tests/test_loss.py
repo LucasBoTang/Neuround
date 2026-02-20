@@ -249,3 +249,42 @@ class TestPenaltyLossNumerical:
         output = loss.calculate_constraints(data)
         # con1: 2.0 * 1.0 = 2.0, con2: 5.0 * 1.0 = 5.0, total: 7.0
         assert output["penalty_loss"].item() == pytest.approx(7.0)
+
+    def test_lower_bound_constraint(self):
+        """x >= lower_bound: violation when x < bound."""
+        x = nm.variable("x")
+        con = 1.0 * (x >= 2.0)
+        con.name = "lb_con"
+        loss = PenaltyLoss(objectives=[], constraints=[con])
+        data = {"x": torch.tensor([[0.5, 1.5, 3.0]])}
+        output = loss.calculate_constraints(data)
+        # dim 0: relu(2.0 - 0.5) = 1.5
+        # dim 1: relu(2.0 - 1.5) = 0.5
+        # dim 2: relu(2.0 - 3.0) = 0.0
+        # sum = 2.0
+        assert output["penalty_loss"].item() == pytest.approx(2.0)
+
+    def test_c_violations_exact_content(self):
+        """C_violations should contain per-element relu violation magnitudes."""
+        con = _make_constraint("x", upper_bound=2.0, weight=1.0)
+        loss = PenaltyLoss(objectives=[], constraints=[con])
+        data = {"x": torch.tensor([[1.0, 2.0, 4.0]])}
+        output = loss.calculate_constraints(data)
+        viols = output["C_violations"]
+        # dim 0: 1.0 <= 2.0 -> 0.0
+        # dim 1: 2.0 <= 2.0 -> 0.0
+        # dim 2: 4.0 > 2.0 -> 2.0
+        assert viols[0, 0].item() == pytest.approx(0.0)
+        assert viols[0, 1].item() == pytest.approx(0.0)
+        assert viols[0, 2].item() == pytest.approx(2.0)
+
+    def test_equality_zero_violation(self):
+        """x == target with exact match should produce zero violation."""
+        con = _make_eq_constraint("x", target="t", weight=1.0)
+        loss = PenaltyLoss(objectives=[], constraints=[con])
+        data = {
+            "x": torch.tensor([[3.0, 5.0]]),
+            "t": torch.tensor([[3.0, 5.0]]),
+        }
+        output = loss.calculate_constraints(data)
+        assert output["penalty_loss"].item() == pytest.approx(0.0)
