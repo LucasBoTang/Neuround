@@ -297,4 +297,4 @@ Arguments: `--size` (problem size), `--penalty` (constraint violation weight), `
 
 ## License
 
-MIT
+Apache-2.0
