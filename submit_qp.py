@@ -3,6 +3,7 @@
 """
 Submit experiments for IQP
 """
+import os
 import argparse
 import random
 import numpy as np
@@ -34,8 +35,19 @@ num_data = train_size + test_size + val_size
 penalty_weights = [0.1, 0.3, 1.0, 3.0, 10.0]
 
 
-def submit_job(func, *args, timeout_min):
-    """Submit a single SLURM job via submitit."""
+def is_done(csv_path):
+    """Return True if result CSV exists and contains 100 data rows."""
+    if not os.path.exists(csv_path):
+        return False
+    with open(csv_path) as f:
+        return sum(1 for _ in f) > 100
+
+
+def submit_job(func, *args, timeout_min, csv_path):
+    """Submit a single SLURM job via submitit, skipping if result already exists."""
+    if is_done(csv_path):
+        print(f"        -> skip")
+        return
     executor = submitit.AutoExecutor(folder="logs")
     executor.update_parameters(
         slurm_additional_parameters={"account": "def-khalile2_gpu",
@@ -97,32 +109,39 @@ for size in sizes:
         # Adaptive selection rounding
         print("        Adaptive Selection, no projection")
         submit_job(experiments.quadratic.run_AS, loader_train, loader_test, loader_val, config,
-                   timeout_min=timeout)
+                   timeout_min=timeout,
+                   csv_path=f"result/stat/cq_cls{penalty}_{size}-{size}.csv")
         # Dynamic threshold rounding
         print("        Dynamic Threshold, no projection")
         submit_job(experiments.quadratic.run_DT, loader_train, loader_test, loader_val, config,
-                   timeout_min=timeout)
+                   timeout_min=timeout,
+                   csv_path=f"result/stat/cq_thd{penalty}_{size}-{size}.csv")
         # Learn-then-round
         print("        Learn-then-Round, no projection")
         submit_job(experiments.quadratic.run_LR, loader_train, loader_test, loader_val, config,
-                   timeout_min=timeout)
+                   timeout_min=timeout,
+                   csv_path=f"result/stat/cq_lrn{penalty}_{size}-{size}.csv")
         # STE rounding
         print("        STE Rounding, no projection")
         submit_job(experiments.quadratic.run_RS, loader_train, loader_test, loader_val, config,
-                   timeout_min=timeout)
+                   timeout_min=timeout,
+                   csv_path=f"result/stat/cq_ste{penalty}_{size}-{size}.csv")
 
         # Projection versions
         config.project = True
         # Adaptive selection rounding + projection
         print("        Adaptive Selection, with projection")
         submit_job(experiments.quadratic.run_AS, loader_train, loader_test, loader_val, config,
-                   timeout_min=timeout)
+                   timeout_min=timeout,
+                   csv_path=f"result/stat/cq_cls{penalty}_{size}-{size}-p.csv")
         # Dynamic threshold rounding + projection
         print("        Dynamic Threshold, with projection")
         submit_job(experiments.quadratic.run_DT, loader_train, loader_test, loader_val, config,
-                   timeout_min=timeout)
+                   timeout_min=timeout,
+                   csv_path=f"result/stat/cq_thd{penalty}_{size}-{size}-p.csv")
         # STE rounding + projection
         print("        STE Rounding, with projection")
         submit_job(experiments.quadratic.run_RS, loader_train, loader_test, loader_val, config,
-                   timeout_min=timeout)
+                   timeout_min=timeout,
+                   csv_path=f"result/stat/cq_ste{penalty}_{size}-{size}-p.csv")
         print()
