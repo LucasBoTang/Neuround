@@ -16,13 +16,8 @@ import submitit
 torch.backends.cudnn.deterministic = True
 torch.backends.cudnn.benchmark = False
 
-# Set parser
-parser = argparse.ArgumentParser()
-parser.add_argument("--penalty",
-                    type=float,
-                    default=100,
-                    help="Penalty weight")
-config = parser.parse_args()
+# Config namespace
+config = argparse.Namespace()
 
 # Fixed hyperparameters
 sizes = [1, 3, 10, 30, 100, 300, 1000, 3000, 10000]
@@ -35,6 +30,7 @@ config.steepness = 50                   # Steepness factor
 train_size = 8000                       # Number of train
 test_size = 100                         # Number of test size
 val_size = 1000                         # Number of validation size
+penalty_weights = [2, 6, 20, 60, 200]
 
 
 def submit_job(func, *args, timeout_min):
@@ -58,72 +54,76 @@ p_low, p_high = 1.0, 8.0
 a_low, a_high = 0.5, 4.5
 
 print("Rosenbrock\n")
-for size in sizes:
-    # Random seed per size for reproducibility
-    random.seed(42)
-    np.random.seed(42)
-    torch.manual_seed(42)
-    torch.cuda.manual_seed(42)
+for penalty in penalty_weights:
+    # Set penalty in config
+    config.penalty = penalty
+    print(f"  Penalty weight: {penalty}")
+    for size in sizes:
+        # Random seed per size for reproducibility
+        random.seed(42)
+        np.random.seed(42)
+        torch.manual_seed(42)
+        torch.cuda.manual_seed(42)
 
-    # Set size-dependent config
-    config.size = size
-    config.hsize = hsize_dict[size]
-    num_blocks = size
+        # Set size-dependent config
+        config.size = size
+        config.hsize = hsize_dict[size]
+        num_blocks = size
 
-    # Generate data
-    p_train = torch.empty(train_size, 1).uniform_(p_low, p_high)
-    p_test  = torch.empty(test_size, 1).uniform_(p_low, p_high)
-    p_val   = torch.empty(val_size, 1).uniform_(p_low, p_high)
-    a_train = torch.empty(train_size, num_blocks).uniform_(a_low, a_high)
-    a_test  = torch.empty(test_size, num_blocks).uniform_(a_low, a_high)
-    a_val   = torch.empty(val_size, num_blocks).uniform_(a_low, a_high)
+        # Generate data
+        p_train = torch.empty(train_size, 1).uniform_(p_low, p_high)
+        p_test  = torch.empty(test_size, 1).uniform_(p_low, p_high)
+        p_val   = torch.empty(val_size, 1).uniform_(p_low, p_high)
+        a_train = torch.empty(train_size, num_blocks).uniform_(a_low, a_high)
+        a_test  = torch.empty(test_size, num_blocks).uniform_(a_low, a_high)
+        a_val   = torch.empty(val_size, num_blocks).uniform_(a_low, a_high)
 
-    # Datasets
-    data_train = DictDataset({"p":p_train, "a":a_train}, name="train")
-    data_test = DictDataset({"p":p_test, "a":a_test}, name="test")
-    data_val = DictDataset({"p":p_val, "a":a_val}, name="dev")
+        # Datasets
+        data_train = DictDataset({"p":p_train, "a":a_train}, name="train")
+        data_test = DictDataset({"p":p_test, "a":a_test}, name="test")
+        data_val = DictDataset({"p":p_val, "a":a_val}, name="dev")
 
-    # Torch dataloaders
-    loader_train = DataLoader(data_train, config.batch_size, num_workers=0, collate_fn=data_train.collate_fn, shuffle=True, pin_memory=True)
-    loader_test = DataLoader(data_test, config.batch_size, num_workers=0, collate_fn=data_test.collate_fn, shuffle=False, pin_memory=True)
-    loader_val = DataLoader(data_val, config.batch_size, num_workers=0, collate_fn=data_val.collate_fn, shuffle=False, pin_memory=True)
+        # Torch dataloaders
+        loader_train = DataLoader(data_train, config.batch_size, num_workers=0, collate_fn=data_train.collate_fn, shuffle=True, pin_memory=True)
+        loader_test = DataLoader(data_test, config.batch_size, num_workers=0, collate_fn=data_test.collate_fn, shuffle=False, pin_memory=True)
+        loader_val = DataLoader(data_val, config.batch_size, num_workers=0, collate_fn=data_val.collate_fn, shuffle=False, pin_memory=True)
 
-    # Set timeout based on problem size
-    timeout = 60 if size <= 300 else 360
-    print(f"    Submitting size={size}, timeout={timeout}min")
+        # Set timeout based on problem size
+        timeout = 60 if size <= 300 else 360
+        print(f"    Submitting size={size}, penalty={penalty}, timeout={timeout}min")
 
-    # Non-projection versions
-    config.project = False
-    # Adaptive selection rounding
-    print("        Adaptive Selection, no projection")
-    submit_job(experiments.rosenbrock.run_AS, loader_train, loader_test, loader_val, config,
-               timeout_min=timeout)
-    # Dynamic threshold rounding
-    print("        Dynamic Threshold, no projection")
-    submit_job(experiments.rosenbrock.run_DT, loader_train, loader_test, loader_val, config,
-               timeout_min=timeout)
-    # Learn-then-round
-    print("        Learn-then-Round, no projection")
-    submit_job(experiments.rosenbrock.run_LR, loader_train, loader_test, loader_val, config,
-               timeout_min=timeout)
-    # STE rounding
-    print("        STE Rounding, no projection")
-    submit_job(experiments.rosenbrock.run_RS, loader_train, loader_test, loader_val, config,
-               timeout_min=timeout)
+        # Non-projection versions
+        config.project = False
+        # Adaptive selection rounding
+        print("        Adaptive Selection, no projection")
+        submit_job(experiments.rosenbrock.run_AS, loader_train, loader_test, loader_val, config,
+                   timeout_min=timeout)
+        # Dynamic threshold rounding
+        print("        Dynamic Threshold, no projection")
+        submit_job(experiments.rosenbrock.run_DT, loader_train, loader_test, loader_val, config,
+                   timeout_min=timeout)
+        # Learn-then-round
+        print("        Learn-then-Round, no projection")
+        submit_job(experiments.rosenbrock.run_LR, loader_train, loader_test, loader_val, config,
+                   timeout_min=timeout)
+        # STE rounding
+        print("        STE Rounding, no projection")
+        submit_job(experiments.rosenbrock.run_RS, loader_train, loader_test, loader_val, config,
+                   timeout_min=timeout)
 
-    # Projection versions
-    config.project = True
-    # Adaptive selection rounding + projection
-    print("        Adaptive Selection, with projection")
-    submit_job(experiments.rosenbrock.run_AS, loader_train, loader_test, loader_val, config,
-               timeout_min=timeout)
-    # Dynamic threshold rounding + projection
-    print("        Dynamic Threshold, with projection")
-    submit_job(experiments.rosenbrock.run_DT, loader_train, loader_test, loader_val, config,
-               timeout_min=timeout)
-    # STE rounding + projection
-    print("        STE Rounding, with projection")
-    submit_job(experiments.rosenbrock.run_RS, loader_train, loader_test, loader_val, config,
-               timeout_min=timeout)
+        # Projection versions
+        config.project = True
+        # Adaptive selection rounding + projection
+        print("        Adaptive Selection, with projection")
+        submit_job(experiments.rosenbrock.run_AS, loader_train, loader_test, loader_val, config,
+                   timeout_min=timeout)
+        # Dynamic threshold rounding + projection
+        print("        Dynamic Threshold, with projection")
+        submit_job(experiments.rosenbrock.run_DT, loader_train, loader_test, loader_val, config,
+                   timeout_min=timeout)
+        # STE rounding + projection
+        print("        STE Rounding, with projection")
+        submit_job(experiments.rosenbrock.run_RS, loader_train, loader_test, loader_val, config,
+                   timeout_min=timeout)
 
-    print()
+        print()
