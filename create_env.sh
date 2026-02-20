@@ -6,6 +6,9 @@ VENV_NAME=".venv"
 PYTHON_VER="3.11"
 CUDA_VER="12.2"
 NM_VER="1.5.2"
+IPOPT_VER="3.14.14"
+SCIP_VER="9.0.0"
+GRB_VER="11.0.1"
 
 # load module
 echo "Load module..."
@@ -13,8 +16,11 @@ module purge
 module load StdEnv/2023
 module load gcc/12.3
 module load python/$PYTHON_VER
+module load ipopt/$IPOPT_VER
+module load scipoptsuite/$SCIP_VER
+module load gurobi/$GRB_VER
 module load cuda/$CUDA_VER
-module load flexiblas
+gurobi_cl 1> /dev/null && echo "Gurobi: Success" || echo "Gurobi: Fail"
 
 # create virtual env
 if [ ! -d "./$VENV_NAME" ]; then
@@ -36,7 +42,7 @@ if [ ! -d "./$VENV_NAME" ]; then
   pip install pydot==1.4.2
   pip install pyts
   pip install lightning wandb
-  pip install submitit
+  pip install pyomo gurobipy
 
   # neuromancer without cvxpy/scs dependency
   pip install neuromancer==$NM_VER --no-deps
