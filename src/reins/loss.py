@@ -36,9 +36,9 @@ class PenaltyLoss(_NMPenaltyLoss):
             flat = cviolation.reshape(cviolation.shape[0], -1)
             loss += c.weight * flat.sum(dim=1).mean()
             nr_constr = math.prod(cvalue.shape[1:])
-            # Track equality vs inequality for later analysis
+            # Track equality vs inequality
             eq_flags += nr_constr * [str(c.comparator) == 'eq']
-            # Store values and violations for later analysis
+            # Store values and violations
             C_values.append(cvalue.reshape(cvalue.shape[0], -1))
             C_violations.append(flat)
         if self.constraints:
@@ -47,12 +47,14 @@ class PenaltyLoss(_NMPenaltyLoss):
             # Concatenate constraint violations and values across all constraints
             C_violations = torch.cat(C_violations, dim=-1)
             C_values = torch.cat(C_values, dim=-1)
-            # Store in output dict for later analysis
+            # Store in output dict
             output_dict['C_violations'] = C_violations
             output_dict['C_values'] = C_values
             output_dict['C_eq_violations'] = C_violations[:, equalities_flags]
             output_dict['C_ineq_violations'] = C_violations[:, ~equalities_flags]
             output_dict['C_eq_values'] = C_values[:, equalities_flags]
             output_dict['C_ineq_values'] = C_values[:, ~equalities_flags]
+        if not isinstance(loss, torch.Tensor):
+            loss = torch.tensor(loss)
         output_dict['penalty_loss'] = loss
         return output_dict
