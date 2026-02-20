@@ -283,7 +283,8 @@ def run_AS(loader_train, loader_test, loader_val, config):
                         hsizes=[hsize] * hlayers_rnd)
     rnd = StochasticAdaptiveSelectionRounding(rnd_net, [p, a], [x, y], continuous_update=True)
     # Set up solver
-    solver = LearnableSolver(rel, rnd, loss)
+    proj_steps = 10000 if config.project else 0
+    solver = LearnableSolver(rel, rnd, loss, projection_steps=proj_steps)
     # Set up optimizer
     optimizer = torch.optim.AdamW(solver.problem.parameters(), lr=lr)
     # Train
@@ -335,7 +336,8 @@ def run_DT(loader_train, loader_test, loader_val, config):
                         hsizes=[hsize] * hlayers_rnd)
     rnd = DynamicThresholdRounding(rnd_net, [p, a], [x, y], continuous_update=True)
     # Set up solver
-    solver = LearnableSolver(rel, rnd, loss)
+    proj_steps = 10000 if config.project else 0
+    solver = LearnableSolver(rel, rnd, loss, projection_steps=proj_steps)
     # Set up optimizer
     optimizer = torch.optim.AdamW(solver.problem.parameters(), lr=lr)
     # Train
@@ -384,7 +386,8 @@ def run_RS(loader_train, loader_test, loader_val, config):
     # Create rounding operator
     rnd = StochasticSTERounding([x, y])
     # Set up solver
-    solver = LearnableSolver(rel, rnd, loss)
+    proj_steps = 10000 if config.project else 0
+    solver = LearnableSolver(rel, rnd, loss, projection_steps=proj_steps)
     # Set up optimizer
     optimizer = torch.optim.AdamW(solver.problem.parameters(), lr=lr)
     # Train
